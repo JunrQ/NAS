@@ -7,6 +7,7 @@ import socket
 import logging
 import sys
 import os
+import mxnet as mx
 def softmax(x):
     """Compute softmax values for each sets of scores in x."""
     assert x.ndim == 2

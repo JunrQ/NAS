@@ -5,10 +5,9 @@ import logging
 from time import gmtime, strftime
 sys.path.insert(0, '/home/zhouchangqing/mxnet/incubator-mxnet_9_17/python')
 
-logging.basicConfig(level=logging.INFO)
-
 from FBNet import FBNet
-from util import *
+from util import _logger, get_train_ds, _set_file
+logging.basicConfig(level=logging.INFO)
 
 parser = argparse.ArgumentParser(description="Train a model with data parallel for base net \
                                 and model parallel for classify net.")
@@ -26,11 +25,13 @@ parser.add_argument('--model-type', type=str, default='softmax',
                     help='top model type, default is softmax')
 parser.add_argument('--log-frequence', type=int, default=400,
                     help='log frequence, default is 400')
+parser.add_argument('--patch-idx', type=int, default=0,
+                    help='patch index, default is 0')
+parser.add_argument('--patch-size', type=int, default=1,
+                    help='patch size, default is 1')
 parser.set_defaults(
-
   num_classes=20000,
   num_examples=1284730,
-  
   image_shape='3,108,108',
   feature_dim=192,
   conv_workspace=1024,  # this is the default value
@@ -44,7 +45,7 @@ parser.set_defaults(
   illum_trans_prob=0.3,
   hsv_adjust_prob=0.1,
 
-  train_rec_path=
+  train_rec_path='/home1/data/face_recognition/MsCeleb_train_clean1_2w.rec',
 
   isgray=False,
 )
@@ -58,6 +59,9 @@ train_w_ds = get_train_ds(args)
 train_theta_ds = get_train_ds(args)
 
 fbnet = FBNet(batch_size=args.batch_size,
-              output_dim=args.num_classes)
+              output_dim=args.num_classes,
+              logger=_logger,
+              label_shape=(args.num_classes, ),
+              input_shape=[int(i) for i in args.image_shape.split(',')])
 
 fbnet.search(train_w_ds, train_theta_ds)
