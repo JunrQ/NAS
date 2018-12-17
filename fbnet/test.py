@@ -27,10 +27,8 @@ parser.add_argument('--model-type', type=str, default='softmax',
 parser.add_argument('--log-frequence', type=int, default=400,
                     help='log frequence, default is 400')
 parser.set_defaults(
-
   num_classes=20000,
   num_examples=1284730,
-  
   image_shape='3,108,108',
   feature_dim=192,
   conv_workspace=1024,  # this is the default value
@@ -43,9 +41,7 @@ parser.set_defaults(
   force2color='false',
   illum_trans_prob=0.3,
   hsv_adjust_prob=0.1,
-
-  train_rec_path=
-
+  train_rec_path='/home1/data/face_recognition/MsCeleb_train_clean1_2w.rec',
   isgray=False,
 )
 args = parser.parse_args()
