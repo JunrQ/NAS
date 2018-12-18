@@ -64,7 +64,8 @@ fbnet = FBNet(batch_size=args.batch_size,
               ctxs=mx.gpu(0),
               # eval_metric=['acc', 'ce'] # TODO
               num_examples=args.num_examples,
-              log_frequence=args.log_frequence)
+              log_frequence=args.log_frequence,
+              save_frequence=args.save_checkpoint_frequence)
 
 fbnet.search(train_w_ds, train_theta_ds,
              init_lr=args.lr,

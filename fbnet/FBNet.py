@@ -178,8 +178,6 @@ class FBNet(object):
           self._gumbel_vars.append(gumbel_var)
           self._gumbel_var_names.append([tmp_gumbel_name, self._m_size[-1]])
           
-          # TODO(ZhouJ) for now, use standard gumbel distribution mean
-          
           theta = mx.sym.broadcast_div((theta_var + gumbel_var), self._temperature)
           m = mx.sym.softmax(theta)
           
