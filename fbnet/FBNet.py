@@ -103,6 +103,10 @@ class FBNet(object):
                                       (self._batch_size, ) + self._label_shape,
                           "temperature": (1, )}
     
+    assert model_type in ['softmax', 'amsoftmax', 'arcface']
+    if model_type != 'softmax':
+      self._label_index = mx.sym.var("label_index")
+      self._input_shapes.setdefault('label_index', (self._batch_size, ))
 
   def init_optimizer(self, lr_decay_step=None):
     """Init optimizer, define updater.
@@ -234,7 +238,8 @@ class FBNet(object):
       norm_w = mx.symbol.L2Normalization(w, mode='instance', eps=1e-8)
       data = mx.symbol.AmSoftmax(data, weight=norm_w, num_hidden=self._output_dim,
                                 lower_class_idx=0, upper_class_idx=self._output_dim,
-                                verbose=False, margin=margin, s=s)
+                                verbose=False, margin=margin, s=s,
+                                label=self._label_index)
     elif self._model_type == 'arcface':
       s = 64.0
       margin = 0.5
@@ -244,7 +249,8 @@ class FBNet(object):
       norm_w = mx.symbol.L2Normalization(w, mode='instance', eps=1e-8)
       data = mx.symbol.Arcface(data, weight=norm_w, num_hidden=self._output_dim,
                                 lower_class_idx=0, upper_class_idx=self._output_dim,
-                                verbose=False, margin=margin, s=s)
+                                verbose=False, margin=margin, s=s,
+                                label=self._label_index)
 
     self._output = data
   
@@ -315,6 +321,9 @@ class FBNet(object):
 
   def forward_backward(self, data, label, temperature=5.0):
     self._arg_dict[self._data_name][:] = data
+    if self._model_type != 'softmax':
+      label_index = label
+      self._arg_dict['label_index'][:] = label_index
     if self._label_shape is not None:
       label = mx.nd.one_hot(label, self._label_shape[0])
     self._arg_dict[self._label_name][:] = label
