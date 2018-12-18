@@ -3,6 +3,7 @@
 import time
 import logging
 import mxnet as mx
+import numpy as np
 
 from blocks import block_factory, block_factory_test
 
@@ -71,7 +72,9 @@ class FBNet(object):
     self._log_frequence = log_frequence
     self._theta_name = []
     self._b_name = []
-    
+    self._gumbel_vars = []
+    self._gumbel_var_names = []
+
     if isinstance(eval_metric, list):
       eval_metric_list = []
       for tmp in eval_metric:
@@ -141,22 +144,30 @@ class FBNet(object):
             block_list.append(tmp)
           tmp_name = "layer_%d_%d_%s" % (i, inner_layer_idx, 
                                        self._theta_unique_name)
+          tmp_gumbel_name = "layer_%d_%d_%s" % (i, inner_layer_idx, "gumbel_random")
           self._theta_name.append(tmp_name)
           if inner_layer_idx >= 1: # skip part
             theta_var = mx.sym.var(tmp_name, shape=(self._block_size, ), 
                                    init=mx.init.One())
+            gumbel_var = mx.sym.var(tmp_gumbel_name, shape=(self._block_size, ))
             self._input_shapes[tmp_name] = (self._block_size, )
+            self._input_shapes[tmp_gumbel_name] = (self._block_size, )
             block_list.append(data)
             self._m_size.append(self._block_size)
           else:
             theta_var = mx.sym.var(tmp_name, shape=(self._block_size - 1, ),
                                    init=mx.init.One())
+            gumbel_var = mx.sym.var(tmp_gumbel_name, shape=(self._block_size - 1, ))
             self._m_size.append(self._block_size - 1)
             self._input_shapes[tmp_name] = (self._block_size - 1, )
+            self._input_shapes[tmp_gumbel_name] = (self._block_size - 1, )
           self._theta_vars.append(theta_var)
+          self._gumbel_vars.append(gumbel_var)
+          self._gumbel_var_names.append([tmp_gumbel_name, self._m_size[-1]])
           
           # TODO(ZhouJ) for now, use standard gumbel distribution mean
-          theta = mx.sym.broadcast_div((theta_var + 0.3665), self._temperature)
+          
+          theta = mx.sym.broadcast_div((theta_var + gumbel_var), self._temperature)
           m = mx.sym.softmax(theta)
           
           m = mx.sym.repeat(mx.sym.reshape(m, (1, -1)), 
@@ -265,6 +276,9 @@ class FBNet(object):
     for k, v in self._b.items():
       self._arg_dict[k][:] = v
       self._no_update_params_name.add(k)
+    
+    for k in self._gumbel_var_names:
+      self._arg_dict[k[0]][:] = 1.0 * mx.nd.array(np.ones((k[1], )))
 
     self._exe.forward(is_train=True)
     self._exe.backward()
