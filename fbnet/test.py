@@ -4,7 +4,7 @@ import sys
 import logging
 from time import gmtime, strftime
 sys.path.insert(0, '/home/zhouchangqing/mxnet/incubator-mxnet_9_17/python')
-
+import mxnet as mx
 from FBNet import FBNet
 from util import _logger, get_train_ds, _set_file
 logging.basicConfig(level=logging.INFO)
@@ -60,8 +60,11 @@ train_theta_ds = get_train_ds(args)
 
 fbnet = FBNet(batch_size=args.batch_size,
               output_dim=args.num_classes,
-              logger=_logger,
               label_shape=(args.num_classes, ),
-              input_shape=[int(i) for i in args.image_shape.split(',')])
+              logger=_logger,
+              input_shape=[int(i) for i in args.image_shape.split(',')],
+              ctxs=mx.gpu(0),
+              # eval_metric=['acc', 'ce'] # TODO
+              )
 
 fbnet.search(train_w_ds, train_theta_ds)
