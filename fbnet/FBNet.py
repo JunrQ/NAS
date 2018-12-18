@@ -143,12 +143,14 @@ class FBNet(object):
                                        self._theta_unique_name)
           self._theta_name.append(tmp_name)
           if inner_layer_idx >= 1: # skip part
-            theta_var = mx.sym.var(tmp_name, shape=(self._block_size, ))
+            theta_var = mx.sym.var(tmp_name, shape=(self._block_size, ), 
+                                   init=mx.init.One())
             self._input_shapes[tmp_name] = (self._block_size, )
             block_list.append(data)
             self._m_size.append(self._block_size)
           else:
-            theta_var = mx.sym.var(tmp_name, shape=(self._block_size - 1, ))
+            theta_var = mx.sym.var(tmp_name, shape=(self._block_size - 1, ),
+                                   init=mx.init.One())
             self._m_size.append(self._block_size - 1)
             self._input_shapes[tmp_name] = (self._block_size - 1, )
           self._theta_vars.append(theta_var)
