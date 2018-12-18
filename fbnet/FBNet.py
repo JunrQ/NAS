@@ -217,7 +217,7 @@ class FBNet(object):
     # ce = mx.sym.softmax_cross_entropy(self._output,
     #                      self._label,
     #                      name='softmax_output')
-    ce = self._label * mx.sym.log(self._softmax_output + self._eps) + \
+    ce = -self._label * mx.sym.log(self._softmax_output + self._eps) - \
       (1 - self._label) * mx.sym.log(1 - self._softmax_output + self._eps)
     
     # TODO(ZhouJ) test time in real environment

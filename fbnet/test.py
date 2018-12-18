@@ -63,7 +63,8 @@ fbnet = FBNet(batch_size=args.batch_size,
               input_shape=[int(i) for i in args.image_shape.split(',')],
               ctxs=mx.gpu(0),
               # eval_metric=['acc', 'ce'] # TODO
-              num_examples=args.num_examples)
+              num_examples=args.num_examples,
+              log_frequence=args.log_frequence)
 
 fbnet.search(train_w_ds, train_theta_ds,
              init_lr=args.lr,
