@@ -15,14 +15,10 @@ parser.add_argument('--batch-size', type=int, default=256,
                     help='training batch size of all devices.')
 parser.add_argument('--epochs', type=int, default=20,
                     help='number of training epochs.')
-parser.add_argument('--lr', type=float, default=0.1,
-                    help='initial learning rate, default is 0.1')
-parser.add_argument('--lr-factor', type=float, default=0.1,
-                    help='learning rate decay ratio, default is 0.1.')
 parser.add_argument('--queue-size', type=int, default=20,
                     help='train data queue size, used for shuffle.')
-parser.add_argument('--model-type', type=str, default='softmax',
-                    help='top model type, default is softmax')
+parser.add_argument('--model-type', type=str, default='amsoftmax',
+                    help='top model type, default is amsoftmax')
 parser.add_argument('--log-frequence', type=int, default=400,
                     help='log frequence, default is 400')
 parser.add_argument('--patch-idx', type=int, default=0,
@@ -35,7 +31,6 @@ parser.set_defaults(
   image_shape='3,108,108',
   feature_dim=192,
   conv_workspace=1024,  # this is the default value
-  lr_decay_step=[5, 10, 15],
   save_checkpoint_frequence=30000,
   restore=False,
   optimizer='sgd',
@@ -65,9 +60,8 @@ fbnet = FBNet(batch_size=args.batch_size,
               # eval_metric=['acc', 'ce'] # TODO
               num_examples=args.num_examples,
               log_frequence=args.log_frequence,
-              save_frequence=args.save_checkpoint_frequence)
+              save_frequence=args.save_checkpoint_frequence,
+              feature_dim=args.feature_dim,
+              model_type=args.model_type)
 
-fbnet.search(train_w_ds, train_theta_ds,
-             init_lr=args.lr,
-             lr_factor=args.lr_factor,
-             lr_decay_step=args.lr_decay_step)
+fbnet.search(train_w_ds, train_theta_ds)

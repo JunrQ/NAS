@@ -11,6 +11,8 @@ from util import sample_gumbel
 class FBNet(object):
   def __init__(self, batch_size, output_dim,
                alpha=0.2, beta=0.6,
+               feature_dim=192,
+               model_type='amsoftmax',
                input_shape=(3, 108, 108),
                label_shape=None,
                data_name='data',
@@ -77,6 +79,10 @@ class FBNet(object):
     self._gumbel_vars = []
     self._gumbel_var_names = []
     self._num_examples = num_examples
+    self._w_updater = None
+    self._theta_updater = None
+    self._feature_dim = feature_dim
+    self._model_type = model_type
 
     if isinstance(eval_metric, list):
       eval_metric_list = []
@@ -98,14 +104,15 @@ class FBNet(object):
                           "temperature": (1, )}
     
 
-  def init_optimizer(self, optimizer='sgd', init_lr=0.01,
-                     optimizer_params={'learning_rate': 0.01,},
-                     lr_factor=0.1, lr_decay_step=None, **kwargs):
+  def init_optimizer(self, lr_decay_step=None):
     """Init optimizer, define updater.
     """
-    self._logger.info("Define updater with init_lr: %f " % init_lr +
-                       "lr_decay_step: %s" % str(lr_decay_step))
-    optimizer_params.setdefault("learning_rate", init_lr)
+    # TODO there should be two different updater for w_a and theta
+    optimizer_params={'learning_rate':0.1,
+                    'momentum':0.9,
+                    'wd':1e-4}
+    # TODO for w_a update, origin parper use cosine
+    # decaying schedule
     if lr_decay_step is not None:
       batch_num = self._num_examples / self._batch_size
       steps = [int(batch_num * i) for i in lr_decay_step]
@@ -113,9 +120,19 @@ class FBNet(object):
           step=steps,
           factor=lr_factor)
       optimizer_params.setdefault("lr_scheduler", lr_scheduler)
+    
     updater = mx.optimizer.get_updater(
-      mx.optimizer.create(optimizer, **optimizer_params))
-    self._updater = updater
+      mx.optimizer.create('sgd', **optimizer_params))
+    self._w_updater = updater
+
+    optimizer_params['learning_rate'] = 0.01
+    optimizer_params['wd'] = 5e-4
+    optimizer_params.pop('momentum')
+    
+    updater = mx.optimizer.get_updater(
+      mx.optimizer.create('adam', **optimizer_params))
+    self._w_updater = updater
+    self._theta_updater = updater
   
   def _build(self):
     """Build symbol.
@@ -192,7 +209,7 @@ class FBNet(object):
       
       elif i == len(self._f) - 1:
         # last 1x1 conv part
-        data = mx.sym.Convolution(data, num_filter=num_filter,
+        data = mx.sym.Convolution(data, num_filter=self._feature_dim,
                                   stride=(s_size, s_size),
                                   kernel=(1, 1),
                                   name="layer_%d_conv1x1" % i)
@@ -205,8 +222,30 @@ class FBNet(object):
   
     data = mx.symbol.Flatten(data=data, name='flat_pool')
     # fc part
-    data = mx.symbol.FullyConnected(name="output_fc", 
-        data=data, num_hidden=self._output_dim)
+    if self._model_type == 'softmax':
+      data = mx.symbol.FullyConnected(name="output_fc", 
+          data=data, num_hidden=self._output_dim)
+    elif self._model_type == 'amsoftmax':
+      s = 30.0
+      margin = 0.35
+      data = mx.symbol.L2Normalization(data, mode='instance', eps=1e-8) * s
+      w = mx.sym.Variable('fc_weight', # init=mx.init.Xavier(magnitude=2),
+                        shape=(self._output_dim, self._feature_dim), dtype=np.float32)
+      norm_w = mx.symbol.L2Normalization(w, mode='instance', eps=1e-8)
+      data = mx.symbol.AmSoftmax(data, weight=norm_w, num_hidden=self._output_dim,
+                                lower_class_idx=0, upper_class_idx=self._output_dim,
+                                verbose=False, margin=margin, s=s)
+    elif self._model_type == 'arcface':
+      s = 64.0
+      margin = 0.5
+      data = mx.symbol.L2Normalization(data, mode='instance', eps=1e-8) * s
+      w = mx.sym.Variable('fc_weight', # init=mx.init.Xavier(magnitude=2),
+                        shape=(self._output_dim, self._feature_dim), dtype=np.float32)
+      norm_w = mx.symbol.L2Normalization(w, mode='instance', eps=1e-8)
+      data = mx.symbol.Arcface(data, weight=norm_w, num_hidden=self._output_dim,
+                                lower_class_idx=0, upper_class_idx=self._output_dim,
+                                verbose=False, margin=margin, s=s)
+
     self._output = data
   
   def define_loss(self):
@@ -306,7 +345,7 @@ class FBNet(object):
       if (not self._theta_unique_name in name) and \
          (not name in self._no_update_params_name):
         grad = grad_dict[name]
-        self._updater(i, grad, weight)
+        self._w_updater(i, grad, weight)
 
 
   def update_theta(self, data, label, temperature):
@@ -318,7 +357,7 @@ class FBNet(object):
       name, weight, grad = pair
       if self._theta_unique_name in name and \
          (not name in self._b.keys()):
-        self._updater(i, grad, weight)
+        self._theta_updater(i, grad, weight)
 
   def _train(self, dataset, epochs, updater_func, start_epoch=0):
     assert isinstance(dataset, mx.io.DataIter)
@@ -433,14 +472,13 @@ class FBNet(object):
              init_temperature=5.0,
              temperature_annel=0.956, # exp(-0.045)
              epochs=90,
-             start_w_epochs=10,
-             **kwargs):
+             start_w_epochs=10):
     """Find optimial $\theta$
     """
     self._build()
     self.define_loss()
     self.bind_exe()
-    self.init_optimizer(**kwargs)    
+    self.init_optimizer()    
 
     self.train_w_a(w_s_ds, start_w_epochs-1,
                     start_epoch=0, temperature=init_temperature)

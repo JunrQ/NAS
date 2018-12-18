@@ -5,3 +5,7 @@
 * `FBNet.py`: Define FBNet Class.
 * `util.py`: Define some functions.
 * `test.py`: Run test.
+
+**Differences from original paper**: 
+  * The last conv layer's num_filters is repalced by feature_dim specified by paramters
+  
