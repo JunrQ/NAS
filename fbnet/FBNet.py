@@ -115,8 +115,7 @@ class FBNet(object):
     optimizer_params={'learning_rate':0.1,
                     'momentum':0.9,
                     'wd':1e-4}
-    # TODO for w_a update, origin parper use cosine
-    # decaying schedule
+    # TODO for w_a update, origin parper use cosine decaying schedule
     if lr_decay_step is not None:
       batch_num = self._num_examples / self._batch_size
       steps = [int(batch_num * i) for i in lr_decay_step]
