@@ -82,8 +82,8 @@ def block_factory(input, input_channels,
   
   # TODO an error occur
   # dimension match
-  # if (stride[0] == stride[1]  == 1) and (input_channels == num_filters):
-  #   output = input + data
-  # else:
-  #   output = data
+  if (stride[0] == stride[1]  == 1) and (input_channels == num_filters):
+    output = input + data
+  else:
+    output = data
   return data

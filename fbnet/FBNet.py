@@ -3,6 +3,7 @@
 import time
 import logging
 import mxnet as mx
+import numpy as np
 
 from blocks import block_factory, block_factory_test
 
@@ -20,7 +21,8 @@ class FBNet(object):
                batch_end_callback=None,
                eval_metric=None,
                log_frequence=50,
-               save_frequence=2000):
+               save_frequence=2000,
+               eps=1e-5):
     """
     Parameters
     ----------
@@ -48,6 +50,7 @@ class FBNet(object):
     self._theta_vars = []
     self._batch_size = batch_size
     self._save_frequence = save_frequence
+    self._eps = eps
 
     self._data = mx.sym.var(data_name)
     self._label = mx.sym.var(label_name)
@@ -69,7 +72,9 @@ class FBNet(object):
     self._log_frequence = log_frequence
     self._theta_name = []
     self._b_name = []
-    
+    self._gumbel_vars = []
+    self._gumbel_var_names = []
+
     if isinstance(eval_metric, list):
       eval_metric_list = []
       for tmp in eval_metric:
@@ -111,12 +116,11 @@ class FBNet(object):
       s_size = self._s[i]
 
       if i == 0:
-        # self._logger.info("Build layer %d first conv" % i)
+        # assert self._input_shapes[1] == self._input_shapes[2] == 108
         data = mx.sym.Convolution(data=data, num_filter=self._f[i],
                   kernel=(3, 3), stride=(s_size, s_size))
         input_channels = self._f[i]
       elif i <= self._tbs[1] and i >= self._tbs[0]:
-        # self._logger.info("Build layer %d blocks" % i)
         for inner_layer_idx in range(num_layers):
           if inner_layer_idx == 0:
             s_size = s_size
@@ -140,20 +144,30 @@ class FBNet(object):
             block_list.append(tmp)
           tmp_name = "layer_%d_%d_%s" % (i, inner_layer_idx, 
                                        self._theta_unique_name)
+          tmp_gumbel_name = "layer_%d_%d_%s" % (i, inner_layer_idx, "gumbel_random")
           self._theta_name.append(tmp_name)
           if inner_layer_idx >= 1: # skip part
-            theta_var = mx.sym.var(tmp_name, shape=(self._block_size, ))
+            theta_var = mx.sym.var(tmp_name, shape=(self._block_size, ), 
+                                   init=mx.init.One())
+            gumbel_var = mx.sym.var(tmp_gumbel_name, shape=(self._block_size, ))
             self._input_shapes[tmp_name] = (self._block_size, )
+            self._input_shapes[tmp_gumbel_name] = (self._block_size, )
             block_list.append(data)
             self._m_size.append(self._block_size)
           else:
-            theta_var = mx.sym.var(tmp_name, shape=(self._block_size - 1, ))
+            theta_var = mx.sym.var(tmp_name, shape=(self._block_size - 1, ),
+                                   init=mx.init.One())
+            gumbel_var = mx.sym.var(tmp_gumbel_name, shape=(self._block_size - 1, ))
             self._m_size.append(self._block_size - 1)
             self._input_shapes[tmp_name] = (self._block_size - 1, )
+            self._input_shapes[tmp_gumbel_name] = (self._block_size - 1, )
           self._theta_vars.append(theta_var)
+          self._gumbel_vars.append(gumbel_var)
+          self._gumbel_var_names.append([tmp_gumbel_name, self._m_size[-1]])
           
           # TODO(ZhouJ) for now, use standard gumbel distribution mean
-          theta = mx.sym.broadcast_div((theta_var + 0.3665), self._temperature)
+          
+          theta = mx.sym.broadcast_div((theta_var + gumbel_var), self._temperature)
           m = mx.sym.softmax(theta)
           
           m = mx.sym.repeat(mx.sym.reshape(m, (1, -1)), 
@@ -166,7 +180,6 @@ class FBNet(object):
           input_channels = num_filter
       
       elif i == len(self._f) - 1:
-        # self._logger.info("Build layer %i last conv layer" % i)
         # last 1x1 conv part
         data = mx.sym.Convolution(data, num_filter=num_filter,
                                   stride=(s_size, s_size),
@@ -192,8 +205,8 @@ class FBNet(object):
     # ce = mx.sym.softmax_cross_entropy(self._output,
     #                      self._label,
     #                      name='softmax_output')
-    ce = self._label * mx.sym.log(self._softmax_output) + \
-      (1 - self._label) * mx.sym.log(1 - self._softmax_output)
+    ce = self._label * mx.sym.log(self._softmax_output + self._eps) + \
+      (1 - self._label) * mx.sym.log(1 - self._softmax_output + self._eps)
     
     # TODO(ZhouJ) test time in real environment
     self._b = {}
@@ -201,7 +214,8 @@ class FBNet(object):
     for l in range(len(self._m)):
       b_l_i = []
       for i in range(self._m_size[l]):
-        b_l_i.append(2.0 * (0.8 ** l) * (1.2 ** i))
+        # b_l_i.append(2.0 * (0.8 ** l) * (1.2 ** i))
+        b_l_i.append(1.0)
       self._b["b_%d" % l] = mx.nd.array(b_l_i)
       self._input_shapes["b_%d" % l] = (self._m_size[l], )
       self._b_name.append("b_%d" % l)
@@ -254,7 +268,7 @@ class FBNet(object):
     if self._label_shape is not None:
       label = mx.nd.one_hot(label, self._label_shape[0])
     self._arg_dict[self._label_name][:] = label
-    self._arg_dict["temperature"] = temperature
+    self._arg_dict["temperature"][:] = temperature
 
     self._no_update_params_name = set((self._data_name, self._label_name,
           "temperature"))
@@ -262,6 +276,9 @@ class FBNet(object):
     for k, v in self._b.items():
       self._arg_dict[k][:] = v
       self._no_update_params_name.add(k)
+    
+    for k in self._gumbel_var_names:
+      self._arg_dict[k[0]][:] = 1.0 * mx.nd.array(np.ones((k[1], )))
 
     self._exe.forward(is_train=True)
     self._exe.backward()
@@ -293,7 +310,7 @@ class FBNet(object):
 
   def _train(self, dataset, epochs, updater_func, start_epoch=0):
     assert isinstance(dataset, mx.io.DataIter)
-
+    n_batches = self._log_frequence * self._batch_size
     for epoch_ in range(epochs):
       epoch = epoch_ + start_epoch
       epoch_tic = time.time()
@@ -328,7 +345,6 @@ class FBNet(object):
         
         if nbatch > 1 and (nbatch % self._log_frequence == 0):
           log_toc = time.time()
-          n_batches = self._log_frequence * self._batch_size
           speed = 1.0 * n_batches /  (log_toc - log_tic)
 
           loss = self._exe.outputs[0].asnumpy()
@@ -342,6 +358,7 @@ class FBNet(object):
           
           self._logger.info("[Epoch] %d [Batch] %d Speed: %.3f samples/batch Loss: %f %s" % 
                             (epoch, nbatch, speed, loss, eval_str))
+          log_tic = time.time()
         
         if nbatch > 1 and (nbatch % self._save_frequence == 0):
           # TODO save checkpoint
