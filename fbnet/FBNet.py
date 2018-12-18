@@ -22,7 +22,8 @@ class FBNet(object):
                eval_metric=None,
                log_frequence=50,
                save_frequence=2000,
-               eps=1e-5):
+               eps=1e-5,
+               num_examples=200000):
     """
     Parameters
     ----------
@@ -74,6 +75,7 @@ class FBNet(object):
     self._b_name = []
     self._gumbel_vars = []
     self._gumbel_var_names = []
+    self._num_examples = num_examples
 
     if isinstance(eval_metric, list):
       eval_metric_list = []
@@ -95,11 +97,21 @@ class FBNet(object):
                           "temperature": (1, )}
     
 
-  def init_optimizer(self, optimizer='sgd', 
-                     optimizer_params={'learning_rate': 0.01,}):
+  def init_optimizer(self, optimizer='sgd', init_lr=0.01,
+                     optimizer_params={'learning_rate': 0.01,},
+                     lr_factor=0.1, lr_decay_step=None, **kwargs):
     """Init optimizer, define updater.
     """
-    self._logger.info("Define updater")
+    self._logger.info("Define updater with init_lr: %f " % init_lr +
+                       "lr_decay_step: %s" % str(lr_decay_step))
+    optimizer_params.setdefault("learning_rate", init_lr)
+    if lr_decay_step is not None:
+      batch_num = self._num_examples / self._batch_size
+      steps = [int(batch_num * i) for i in lr_decay_step]
+      lr_scheduler = mx.lr_scheduler.MultiFactorScheduler(
+          step=steps,
+          factor=lr_factor)
+      optimizer_params.setdefault("lr_scheduler", lr_scheduler)
     updater = mx.optimizer.get_updater(
       mx.optimizer.create(optimizer, **optimizer_params))
     self._updater = updater
@@ -421,13 +433,14 @@ class FBNet(object):
              init_temperature=5.0,
              temperature_annel=0.956, # exp(-0.045)
              epochs=90,
-             start_w_epochs=10):
+             start_w_epochs=10,
+             **kwargs):
     """Find optimial $\theta$
     """
     self._build()
     self.define_loss()
     self.bind_exe()
-    self.init_optimizer()    
+    self.init_optimizer(**kwargs)    
 
     self.train_w_a(w_s_ds, start_w_epochs-1,
                     start_epoch=0, temperature=init_temperature)

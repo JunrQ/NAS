@@ -35,7 +35,7 @@ parser.set_defaults(
   image_shape='3,108,108',
   feature_dim=192,
   conv_workspace=1024,  # this is the default value
-  lr_decay_step=[1.2, 2.4, 3.6],
+  lr_decay_step=[5, 10, 15],
   save_checkpoint_frequence=30000,
   restore=False,
   optimizer='sgd',
@@ -63,6 +63,9 @@ fbnet = FBNet(batch_size=args.batch_size,
               input_shape=[int(i) for i in args.image_shape.split(',')],
               ctxs=mx.gpu(0),
               # eval_metric=['acc', 'ce'] # TODO
-              )
+              num_examples=args.num_examples)
 
-fbnet.search(train_w_ds, train_theta_ds)
+fbnet.search(train_w_ds, train_theta_ds,
+             init_lr=args.lr,
+             lr_factor=args.lr_factor,
+             lr_decay_step=args.lr_decay_step)
