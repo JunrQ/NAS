@@ -79,8 +79,7 @@ def block_factory(input, input_channels,
     data = mx.sym.BatchNorm(data=data)
   if shuffle and group >= 2:
     data = channel_shuffle(data, group)
-  
-  # TODO an error occur
+
   # dimension match
   if (stride[0] == stride[1]  == 1) and (input_channels == num_filters):
     output = input + data
