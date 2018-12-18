@@ -268,7 +268,7 @@ class FBNet(object):
     if self._label_shape is not None:
       label = mx.nd.one_hot(label, self._label_shape[0])
     self._arg_dict[self._label_name][:] = label
-    self._arg_dict["temperature"] = temperature
+    self._arg_dict["temperature"][:] = temperature
 
     self._no_update_params_name = set((self._data_name, self._label_name,
           "temperature"))
