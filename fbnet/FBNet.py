@@ -113,6 +113,7 @@ class FBNet(object):
       s_size = self._s[i]
 
       if i == 0:
+        # assert self._input_shapes[1] == self._input_shapes[2] == 108
         data = mx.sym.Convolution(data=data, num_filter=self._f[i],
                   kernel=(3, 3), stride=(s_size, s_size))
         input_channels = self._f[i]
@@ -293,7 +294,7 @@ class FBNet(object):
 
   def _train(self, dataset, epochs, updater_func, start_epoch=0):
     assert isinstance(dataset, mx.io.DataIter)
-
+    n_batches = self._log_frequence * self._batch_size
     for epoch_ in range(epochs):
       epoch = epoch_ + start_epoch
       epoch_tic = time.time()
@@ -328,7 +329,6 @@ class FBNet(object):
         
         if nbatch > 1 and (nbatch % self._log_frequence == 0):
           log_toc = time.time()
-          n_batches = self._log_frequence * self._batch_size
           speed = 1.0 * n_batches /  (log_toc - log_tic)
 
           loss = self._exe.outputs[0].asnumpy()
@@ -342,6 +342,7 @@ class FBNet(object):
           
           self._logger.info("[Epoch] %d [Batch] %d Speed: %.3f samples/batch Loss: %f %s" % 
                             (epoch, nbatch, speed, loss, eval_str))
+          log_tic = time.time()
         
         if nbatch > 1 and (nbatch % self._save_frequence == 0):
           # TODO save checkpoint
