@@ -3,6 +3,7 @@ import argparse
 import sys
 import logging
 from time import gmtime, strftime
+import time
 sys.path.insert(0, '/home/zhouchangqing/mxnet/incubator-mxnet_9_17/python')
 import mxnet as mx
 from FBNet import FBNet
@@ -44,6 +45,14 @@ parser.set_defaults(
 )
 args = parser.parse_args()
 train_w_ds = get_train_ds(args)
+
+args.model_save_path = '/home1/nas/fbnet/%s/' % \
+                (time.strftime('%Y-%m-%d', time.localtime(time.time())))
+
+if not os.path.exists(args.model_save_path):
+  _logger.warn("{} not exists, create it".format(args.model_save_path))
+  os.makedirs(args.model_save_path)
+_set_file(args.model_save_path + 'log.log')
 
 # TODO
 # args.num_classes = 
