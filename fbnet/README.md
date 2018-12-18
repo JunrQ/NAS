@@ -8,4 +8,5 @@
 
 **Differences from original paper**: 
   * The last conv layer's num_filters is repalced by feature_dim specified by paramters
+  * Use *Amsoftmax*, *Arcface* instead of *FC*, but you can set model_type to `softamx` to use fc
   
