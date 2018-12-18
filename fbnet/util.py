@@ -102,3 +102,12 @@ def get_train_ds(args, kv=None):
         force2color = args.force2color,
         isgray='true' if args.isgray else 'false')
     return train
+
+def inv_gumbel_cdf(y, mu=0.0, beta=1.0, eps=1e-20):
+    y = np.array(y)
+    return mu - beta * np.log(-np.log(y + eps))
+
+def sample_gumbel(shape):
+    p = np.random.random(shape)
+    return inv_gumbel_cdf(p)
+    

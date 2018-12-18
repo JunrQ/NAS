@@ -6,6 +6,7 @@ import mxnet as mx
 import numpy as np
 
 from blocks import block_factory, block_factory_test
+from util import sample_gumbel
 
 class FBNet(object):
   def __init__(self, batch_size, output_dim,
@@ -290,7 +291,8 @@ class FBNet(object):
       self._no_update_params_name.add(k)
     
     for k in self._gumbel_var_names:
-      self._arg_dict[k[0]][:] = 1.0 * mx.nd.array(np.ones((k[1], )))
+      tmp_gumbel = sample_gumbel((k[1], ))
+      self._arg_dict[k[0]][:] = 1.0 * mx.nd.array(tmp_gumbel)
 
     self._exe.forward(is_train=True)
     self._exe.backward()
