@@ -20,7 +20,8 @@ class FBNet(object):
                batch_end_callback=None,
                eval_metric=None,
                log_frequence=50,
-               save_frequence=2000):
+               save_frequence=2000,
+               eps=1e-5):
     """
     Parameters
     ----------
@@ -48,6 +49,7 @@ class FBNet(object):
     self._theta_vars = []
     self._batch_size = batch_size
     self._save_frequence = save_frequence
+    self._eps = eps
 
     self._data = mx.sym.var(data_name)
     self._label = mx.sym.var(label_name)
@@ -111,12 +113,10 @@ class FBNet(object):
       s_size = self._s[i]
 
       if i == 0:
-        # self._logger.info("Build layer %d first conv" % i)
         data = mx.sym.Convolution(data=data, num_filter=self._f[i],
                   kernel=(3, 3), stride=(s_size, s_size))
         input_channels = self._f[i]
       elif i <= self._tbs[1] and i >= self._tbs[0]:
-        # self._logger.info("Build layer %d blocks" % i)
         for inner_layer_idx in range(num_layers):
           if inner_layer_idx == 0:
             s_size = s_size
@@ -166,7 +166,6 @@ class FBNet(object):
           input_channels = num_filter
       
       elif i == len(self._f) - 1:
-        # self._logger.info("Build layer %i last conv layer" % i)
         # last 1x1 conv part
         data = mx.sym.Convolution(data, num_filter=num_filter,
                                   stride=(s_size, s_size),
@@ -192,8 +191,8 @@ class FBNet(object):
     # ce = mx.sym.softmax_cross_entropy(self._output,
     #                      self._label,
     #                      name='softmax_output')
-    ce = self._label * mx.sym.log(self._softmax_output) + \
-      (1 - self._label) * mx.sym.log(1 - self._softmax_output)
+    ce = self._label * mx.sym.log(self._softmax_output + self._eps) + \
+      (1 - self._label) * mx.sym.log(1 - self._softmax_output + self._eps)
     
     # TODO(ZhouJ) test time in real environment
     self._b = {}
@@ -201,7 +200,8 @@ class FBNet(object):
     for l in range(len(self._m)):
       b_l_i = []
       for i in range(self._m_size[l]):
-        b_l_i.append(2.0 * (0.8 ** l) * (1.2 ** i))
+        # b_l_i.append(2.0 * (0.8 ** l) * (1.2 ** i))
+        b_l_i.append(1.0)
       self._b["b_%d" % l] = mx.nd.array(b_l_i)
       self._input_shapes["b_%d" % l] = (self._m_size[l], )
       self._b_name.append("b_%d" % l)
