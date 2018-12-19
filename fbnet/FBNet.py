@@ -38,7 +38,7 @@ class FBNet(object):
     self._n = [1, 1, 4, 4,
                4, 4, 4, 1,
                1]
-    self._s = [2, 1, 2, 2,
+    self._s = [1, 1, 2, 2,
                2, 1, 2, 1,
                1]
     assert len(self._f) == len(self._n) == len(self._s)
@@ -87,7 +87,7 @@ class FBNet(object):
     if isinstance(eval_metric, list):
       eval_metric_list = []
       for tmp in eval_metric:
-        eval_metric_list.append(mx.metric.create(eval_metric))
+        eval_metric_list.append(mx.metric.create(tmp))
       self._eval_metric = eval_metric_list
     elif isinstance(eval_metric, str):
       self._eval_metric = [mx.metric.create(eval_metric)]
@@ -111,31 +111,27 @@ class FBNet(object):
   def init_optimizer(self, lr_decay_step=None):
     """Init optimizer, define updater.
     """
-    # TODO there should be two different updater for w_a and theta
-    optimizer_params={'learning_rate':0.1,
-                    'momentum':0.9,
-                    'wd':1e-4}
+    optimizer_params={'learning_rate':0.02,
+                      'momentum':0.9,
+                      'wd':1e-4}
     # TODO for w_a update, origin parper use cosine decaying schedule
     if lr_decay_step is not None:
       batch_num = self._num_examples / self._batch_size
       steps = [int(batch_num * i) for i in lr_decay_step]
       lr_scheduler = mx.lr_scheduler.MultiFactorScheduler(
           step=steps,
-          factor=lr_factor)
+          factor=0.1)
       optimizer_params.setdefault("lr_scheduler", lr_scheduler)
     
-    updater = mx.optimizer.get_updater(
+    self._w_updater = mx.optimizer.get_updater(
       mx.optimizer.create('sgd', **optimizer_params))
-    self._w_updater = updater
 
     optimizer_params['learning_rate'] = 0.01
     optimizer_params['wd'] = 5e-4
     optimizer_params.pop('momentum')
     
-    updater = mx.optimizer.get_updater(
+    self._theta_updater = mx.optimizer.get_updater(
       mx.optimizer.create('adam', **optimizer_params))
-    self._w_updater = updater
-    self._theta_updater = updater
   
   def _build(self):
     """Build symbol.
@@ -143,13 +139,11 @@ class FBNet(object):
     self._logger.info("Build symbol")
     data = self._data
     for i in range(len(self._f)):
-      layer_idx = i
       num_filter = self._f[i]
       num_layers = self._n[i]
       s_size = self._s[i]
 
       if i == 0:
-        # assert self._input_shapes[1] == self._input_shapes[2] == 108
         data = mx.sym.Convolution(data=data, num_filter=self._f[i],
                   kernel=(3, 3), stride=(s_size, s_size))
         input_channels = self._f[i]
@@ -175,6 +169,7 @@ class FBNet(object):
                                 group=group, shuffle=True,
                                 stride=stride)
             block_list.append(tmp)
+          # theta parameters, gumbel
           tmp_name = "layer_%d_%d_%s" % (i, inner_layer_idx, 
                                        self._theta_unique_name)
           tmp_gumbel_name = "layer_%d_%d_%s" % (i, inner_layer_idx, "gumbel_random")
@@ -198,7 +193,7 @@ class FBNet(object):
           self._gumbel_vars.append(gumbel_var)
           self._gumbel_var_names.append([tmp_gumbel_name, self._m_size[-1]])
           
-          theta = mx.sym.broadcast_div((theta_var + gumbel_var), self._temperature)
+          theta = mx.sym.broadcast_div(mx.sym.elemwise_add(theta_var, gumbel_var), self._temperature)
           m = mx.sym.softmax(theta)
           
           m = mx.sym.repeat(mx.sym.reshape(m, (1, -1)), 
@@ -361,7 +356,7 @@ class FBNet(object):
     """
     self.forward_backward(data, label, temperature)
 
-    for i, pair in enumerate(zip(self._arg_dict.items(), self.grad_arrays)):
+    for i, pair in enumerate(zip(self._arg_dict.items(), self._grad_arrays)):
       name, weight, grad = pair
       if self._theta_unique_name in name and \
          (not name in self._b.keys()):
@@ -372,7 +367,6 @@ class FBNet(object):
     n_batches = self._log_frequence * self._batch_size
     for epoch_ in range(epochs):
       epoch = epoch_ + start_epoch
-      epoch_tic = time.time()
       log_tic = time.time()
 
       end_of_batch = False
@@ -406,7 +400,7 @@ class FBNet(object):
           log_toc = time.time()
           speed = 1.0 * n_batches /  (log_toc - log_tic)
 
-          loss = self._exe.outputs[0].asnumpy()
+          loss = self._exe.outputs[0].asnumpy() / self._batch_size
           eval_str = ''
           # TODO
           # if self._eval_metric is not None:
@@ -415,7 +409,7 @@ class FBNet(object):
           #     eval_result = eval_m.get()
           #     eval_str += "[%s: %f]" % (eval_result[0], eval_result[1])
           
-          self._logger.info("[Epoch] %d [Batch] %d Speed: %.3f samples/batch Loss: %f %s" % 
+          self._logger.info("Epoch[%d] Batch[%d] Speed: %.3f samples/sec Loss: %f %s" % 
                             (epoch, nbatch, speed, loss, eval_str))
           log_tic = time.time()
         

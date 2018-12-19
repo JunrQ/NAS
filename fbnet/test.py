@@ -27,8 +27,8 @@ parser.add_argument('--patch-idx', type=int, default=0,
 parser.add_argument('--patch-size', type=int, default=1,
                     help='patch size, default is 1')
 parser.set_defaults(
-  num_classes=20000,
-  num_examples=1284730,
+  num_classes=2000,
+  num_examples=107588,
   image_shape='3,108,108',
   feature_dim=192,
   conv_workspace=1024,  # this is the default value
@@ -40,7 +40,7 @@ parser.set_defaults(
   force2color='false',
   illum_trans_prob=0.3,
   hsv_adjust_prob=0.1,
-  train_rec_path='/home1/data/face_recognition/MsCeleb_train_clean1_2w.rec',
+  train_rec_path='/home1/data/zhuzhou/MsCeleb_SrvA2_clean/MsCeleb_clean1_2w_train_2k.rec',
   isgray=False,
 )
 args = parser.parse_args()
@@ -55,9 +55,8 @@ if not os.path.exists(args.model_save_path):
 _set_file(args.model_save_path + 'log.log')
 
 # TODO
-# args.num_classes = 
-# args.num_examples = 
-# args.train_rec_path = 
+args.num_examples = 26246
+args.train_rec_path = '/home1/data/zhuzhou/MsCeleb_SrvA2_clean/MsCeleb_clean1_2w_val_2k.rec'
 train_theta_ds = get_train_ds(args)
 
 fbnet = FBNet(batch_size=args.batch_size,
@@ -65,7 +64,7 @@ fbnet = FBNet(batch_size=args.batch_size,
               label_shape=(args.num_classes, ),
               logger=_logger,
               input_shape=[int(i) for i in args.image_shape.split(',')],
-              ctxs=mx.gpu(0),
+              ctxs=mx.gpu(1),
               # eval_metric=['acc', 'ce'] # TODO
               num_examples=args.num_examples,
               log_frequence=args.log_frequence,
