@@ -22,11 +22,11 @@ def block_factory_test(input, input_channels,
                             name=prefix + '_sep_0')
   return output
 
-def block_factory(input, input_channels, 
+def block_factory(input_symbol, input_channels, 
                   num_filters,
                   prefix, kernel_size, expansion,
                   group, stride, bn=False, 
-                  shuffle=True,
+                  shuffle=False,
                   **kwargs):
   """Return block symbol.
 
@@ -47,8 +47,10 @@ def block_factory(input, input_channels,
   stride : tuple
 
   """
+  assert not bn
   # 1*1 group conv
-  data = mx.sym.Convolution(data=input, num_filter=input_channels*expansion, 
+  data = input_symbol
+  data = mx.sym.Convolution(data=data, num_filter=input_channels*expansion, 
                             kernel=(1, 1), stride=(1, 1), pad=(0, 0), 
                             num_group=group, no_bias=True,
                             name=prefix + '_sep_0')
@@ -59,8 +61,16 @@ def block_factory(input, input_channels,
     data = channel_shuffle(data, group)
   
   # dw conv
+  assert kernel_size[0] == kernel_size[1]
+  assert kernel_size[0] != 1
+  if kernel_size[0] == 3:
+    pad_ = 1
+  elif kernel_size[0] == 5:
+    pad_ = 2
+  else:
+    raise ValueError("Not support kernel size (%d, %d)" % (kernel_size[0], kernel_size[1]))
   data = mx.sym.Convolution(data=data, num_filter=input_channels*expansion, 
-                            kernel=(3, 3), stride=stride, pad=(1, 1), 
+                            kernel=kernel_size, stride=stride, pad=(pad_, pad_), 
                             num_group=input_channels*expansion, no_bias=False,
                             name=prefix + '_dw')
   if bn:
@@ -80,9 +90,4 @@ def block_factory(input, input_channels,
   if shuffle and group >= 2:
     data = channel_shuffle(data, group)
 
-  # dimension match
-  if (stride[0] == stride[1]  == 1) and (input_channels == num_filters):
-    output = input + data
-  else:
-    output = data
   return data

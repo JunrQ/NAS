@@ -171,10 +171,11 @@ class FBNet(object):
       s_size = self._s[i]
 
       if i == 0:
+        # 108,108 -> 108,108
         data = mx.sym.Convolution(data=data, num_filter=self._f[i],
-                  kernel=(3, 3), stride=(s_size, s_size))
+                  kernel=(3, 3), stride=(s_size, s_size), pad=(1, 1))
         input_channels = self._f[i]
-      elif i <= self._tbs[1] and i >= self._tbs[0]:
+      elif (i <= self._tbs[1]) and (i >= self._tbs[0]):
         for inner_layer_idx in range(num_layers):
           if inner_layer_idx == 0:
             s_size = s_size
@@ -189,13 +190,17 @@ class FBNet(object):
             prefix = "layer_%d_%d_block_%d" % (i, inner_layer_idx, block_idx)
             expansion = self._e[block_idx]
             stride = (s_size, s_size)
-
-            tmp = block_factory(input=data, input_channels=input_channels,
+            # tmp = mx.sym.Convolution(data=data, num_filter=num_filter,
+            #                 kernel=kernel_size, stride=stride)
+            block_out = block_factory(data, input_channels=input_channels,
                                 num_filters=num_filter, kernel_size=kernel_size,
                                 prefix=prefix, expansion=expansion,
                                 group=group, shuffle=True,
                                 stride=stride)
-            block_list.append(tmp)
+            if (input_channels == num_filter) and (s_size == 1):
+              block_out = block_out + data
+            block_out = mx.sym.expand_dims(block_out, axis=1)
+            block_list.append(block_out)
           # theta parameters, gumbel
           tmp_name = "layer_%d_%d_%s" % (i, inner_layer_idx, 
                                        self._theta_unique_name)
@@ -206,7 +211,7 @@ class FBNet(object):
             gumbel_var = mx.sym.var(tmp_gumbel_name, shape=(self._block_size, ))
             self._input_shapes[tmp_name] = (self._block_size, )
             self._input_shapes[tmp_gumbel_name] = (self._block_size, )
-            block_list.append(data)
+            block_list.append(mx.sym.expand_dims(data, axis=1))
             self._m_size.append(self._block_size)
           else:
             theta_var = mx.sym.var(tmp_name, shape=(self._block_size - 1, ))
@@ -219,13 +224,13 @@ class FBNet(object):
           self._gumbel_var_names.append([tmp_gumbel_name, self._m_size[-1]])
           
           theta = mx.sym.broadcast_div(mx.sym.elemwise_add(theta_var, gumbel_var), self._temperature)
-          m = mx.sym.softmax(theta)
-          
-          m = mx.sym.repeat(mx.sym.reshape(m, (1, -1)), 
+
+          m = mx.sym.repeat(mx.sym.reshape(mx.sym.softmax(theta), (1, -1)), 
                             repeats=self._batch_size, axis=0)
           self._m.append(m)
           m = mx.sym.reshape(m, (-2, 1, 1, 1))
-          data = mx.sym.stack(*block_list, axis=1)
+          # TODO why stack wrong
+          data = mx.sym.concat(*block_list, dim=1, name="layer_%d_%d_concat" % (i, inner_layer_idx))
           data = mx.sym.broadcast_mul(data, m)
           data = mx.sym.sum(data, axis=1)
           input_channels = num_filter
@@ -234,8 +239,8 @@ class FBNet(object):
         # last 1x1 conv part
         data = mx.sym.Convolution(data, num_filter=self._feature_dim,
                                   stride=(s_size, s_size),
-                                  kernel=(1, 1),
-                                  name="layer_%d_conv1x1" % i)
+                                  kernel=(3, 3),
+                                  name="layer_%d_last_conv" % i)
       else:
         raise ValueError("Wrong layer index %d" % i)
     
@@ -270,7 +275,6 @@ class FBNet(object):
                                 lower_class_idx=0, upper_class_idx=self._output_dim,
                                 verbose=False, margin=margin, s=s,
                                 label=self._label_index)
-
     self._output = data
   
   def define_loss(self):

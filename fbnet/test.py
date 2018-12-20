@@ -4,7 +4,7 @@ import sys
 import logging
 from time import gmtime, strftime
 import time
-sys.path.insert(0, '/home/zhouchangqing/mxnet/incubator-mxnet_9_17/python')
+sys.path.insert(0, '/home/zhouchangqing/mxnet/incubator-mxnet_12_20/python')
 import mxnet as mx
 from FBNet import FBNet
 from util import _logger, get_train_ds, _set_file
@@ -26,6 +26,8 @@ parser.add_argument('--patch-idx', type=int, default=0,
                     help='patch index, default is 0')
 parser.add_argument('--patch-size', type=int, default=1,
                     help='patch size, default is 1')
+parser.add_argument('--gpu', type=int, default=1,
+                    help='gpu, default is 1')
 parser.set_defaults(
   num_classes=2000,
   num_examples=107588,
@@ -64,7 +66,7 @@ fbnet = FBNet(batch_size=args.batch_size,
               label_shape=(args.num_classes, ),
               logger=_logger,
               input_shape=[int(i) for i in args.image_shape.split(',')],
-              ctxs=mx.gpu(1),
+              ctxs=mx.gpu(args.gpu),
               # eval_metric=['acc', 'ce'] # TODO
               num_examples=args.num_examples,
               log_frequence=args.log_frequence,
