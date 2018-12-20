@@ -26,11 +26,36 @@ class FBNet(object):
                log_frequence=50,
                save_frequence=2000,
                eps=1e-5,
-               num_examples=200000):
+               num_examples=200000,
+               theta_init_value=1.0):
     """
     Parameters
     ----------
-
+    batch_size : int
+      batch size for training
+    output_dim : int
+      output dimensions of last fc layer, number of classes actually
+    alpha : float
+      loss parameters, default is 0.2
+    beta : float
+      loss aprameters, default is 0.6
+    feature_dim : int
+      feature dimensions, default is 192
+    model_type : str
+      for now, support `softmax`, `amsoftmax`, `arcface`,
+      softmax mean original fc
+    input_shape : tuple
+      input shape, CHW
+    data_name : str
+      name for inpu
+    label_name : str
+      name for label
+    logger : 
+    ctxs : 
+    initializer : 
+    theta_unique_name : str
+      used for recognizing $\theta$ parameters
+    
     """
     self._f = [16, 16, 24, 32, 
                64, 112, 184, 352,
@@ -83,6 +108,8 @@ class FBNet(object):
     self._theta_updater = None
     self._feature_dim = feature_dim
     self._model_type = model_type
+    self._b = dict()
+    self._theta_init_value = theta_init_value
 
     if isinstance(eval_metric, list):
       eval_metric_list = []
@@ -175,16 +202,14 @@ class FBNet(object):
           tmp_gumbel_name = "layer_%d_%d_%s" % (i, inner_layer_idx, "gumbel_random")
           self._theta_name.append(tmp_name)
           if inner_layer_idx >= 1: # skip part
-            theta_var = mx.sym.var(tmp_name, shape=(self._block_size, ), 
-                                   init=mx.init.One())
+            theta_var = mx.sym.var(tmp_name, shape=(self._block_size, ))
             gumbel_var = mx.sym.var(tmp_gumbel_name, shape=(self._block_size, ))
             self._input_shapes[tmp_name] = (self._block_size, )
             self._input_shapes[tmp_gumbel_name] = (self._block_size, )
             block_list.append(data)
             self._m_size.append(self._block_size)
           else:
-            theta_var = mx.sym.var(tmp_name, shape=(self._block_size - 1, ),
-                                   init=mx.init.One())
+            theta_var = mx.sym.var(tmp_name, shape=(self._block_size - 1, ))
             gumbel_var = mx.sym.var(tmp_gumbel_name, shape=(self._block_size - 1, ))
             self._m_size.append(self._block_size - 1)
             self._input_shapes[tmp_name] = (self._block_size - 1, )
@@ -259,8 +284,6 @@ class FBNet(object):
       (1 - self._label) * mx.sym.log(1 - self._softmax_output + self._eps)
     
     # TODO(ZhouJ) test time in real environment
-    self._b = {}
-    # lat_list = []
     for l in range(len(self._m)):
       b_l_i = []
       for i in range(self._m_size[l]):
@@ -303,15 +326,19 @@ class FBNet(object):
     self._exe = self._loss.simple_bind(ctx=self._ctxs,
                       grad_req=self.grad_req,
                       **self._input_shapes)
-    self._arg_arrays = self._exe.arg_arrays
+    self._param_arrays = self._exe.arg_arrays
     self._grad_arrays = self._exe.grad_arrays
     self._arg_dict = self._exe.arg_dict
-    self._output_dict = self._exe.output_dict
+    self._grad_dict = self._exe.grad_dict
 
+    # initilize parameters
+    # default value for $\theta$ is 1
     for name, arr in self._arg_dict.items():
       if name not in self._input_shapes:
         # TODO there is a warning
         self._init(name, arr)
+      elif self._theta_unique_name in name:
+        arr[:] = self._theta_init_value
 
   def forward_backward(self, data, label, temperature=5.0):
     self._arg_dict[self._data_name][:] = data
@@ -331,8 +358,14 @@ class FBNet(object):
       self._no_update_params_name.add(k)
     
     for k in self._gumbel_var_names:
-      tmp_gumbel = sample_gumbel((k[1], ))
-      self._arg_dict[k[0]][:] = 1.0 * mx.nd.array(tmp_gumbel)
+      # TODO use random sample, for now use zeros for test
+      # The  random gumbel sampled may be too big compared
+      # to $\theta$, which may cause unstable and fail to
+      # converge
+      # tmp_gumbel = sample_gumbel((k[1], ))
+      # self._arg_dict[k[0]][:] = 1.0 * mx.nd.array(tmp_gumbel)
+      self._arg_dict[k[0]][:] = 1.0 * mx.nd.zeros((k[1]))
+      self._no_update_params_name.add(k[0])
 
     self._exe.forward(is_train=True)
     self._exe.backward()
@@ -342,13 +375,23 @@ class FBNet(object):
     """
     self.forward_backward(data, label, temperature)
 
-    grad_dict = self._exe.grad_dict
+    # for i, pair in enumerate(zip(self._param_arrays, self._grad_arrays)):
+    #   name = self._param_names[i]
+    #   weight, grad = pair
+    #   if (not self._theta_unique_name in name) and \
+    #      (not name in self._no_update_params_name):
+    #     grad = self._grad_dict[name]
+    #     self._w_updater(i, grad, weight)
+
     for i, pair in enumerate(self._arg_dict.items()):
       name, weight = pair
       if (not self._theta_unique_name in name) and \
          (not name in self._no_update_params_name):
-        grad = grad_dict[name]
+        grad = self._grad_dict[name]
         self._w_updater(i, grad, weight)
+      else:
+        # print(pair) # check init
+        pass
 
 
   def update_theta(self, data, label, temperature):
@@ -356,10 +399,11 @@ class FBNet(object):
     """
     self.forward_backward(data, label, temperature)
 
-    for i, pair in enumerate(zip(self._arg_dict.items(), self._grad_arrays)):
-      name, weight, grad = pair
+    for i, pair in enumerate(self._arg_dict.items()):
+      name, weight = pair
       if self._theta_unique_name in name and \
-         (not name in self._b.keys()):
+         (not name in self._no_update_params_name):
+        grad = self._grad_dict[name]
         self._theta_updater(i, grad, weight)
 
   def _train(self, dataset, epochs, updater_func, start_epoch=0):
