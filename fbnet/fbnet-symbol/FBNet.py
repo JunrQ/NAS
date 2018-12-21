@@ -6,7 +6,7 @@ import mxnet as mx
 import numpy as np
 
 from blocks import block_factory, block_factory_test
-from util import sample_gumbel
+from util import sample_gumbel, ce
 
 class FBNet(object):
   def __init__(self, batch_size, output_dim,
@@ -25,7 +25,7 @@ class FBNet(object):
                eval_metric=None,
                log_frequence=50,
                save_frequence=2000,
-               eps=1e-5,
+               eps=1e-10,
                num_examples=200000,
                theta_init_value=1.0):
     """
@@ -64,7 +64,7 @@ class FBNet(object):
                4, 4, 4, 1,
                1]
     self._s = [1, 1, 2, 2,
-               2, 1, 2, 1,
+               1, 1, 1, 1,
                1]
     assert len(self._f) == len(self._n) == len(self._s)
     self._e = [1, 1, 3, 6,
@@ -138,7 +138,7 @@ class FBNet(object):
   def init_optimizer(self, lr_decay_step=None):
     """Init optimizer, define updater.
     """
-    optimizer_params={'learning_rate':0.02,
+    optimizer_params={'learning_rate':0.001,
                       'momentum':0.9,
                       'wd':1e-4}
     # TODO for w_a update, origin parper use cosine decaying schedule
@@ -165,18 +165,18 @@ class FBNet(object):
     """
     self._logger.info("Build symbol")
     data = self._data
-    for i in range(len(self._f)):
-      num_filter = self._f[i]
-      num_layers = self._n[i]
-      s_size = self._s[i]
+    for outer_layer_idx in range(len(self._f)):
+      num_filter = self._f[outer_layer_idx]
+      num_layers = self._n[outer_layer_idx]
+      s_size = self._s[outer_layer_idx]
 
-      if i == 0:
-        # 108,108 -> 108,108
-        data = mx.sym.Convolution(data=data, num_filter=self._f[i],
+      if outer_layer_idx == 0:
+        data = mx.sym.Convolution(data=data, num_filter=num_filter,
                   kernel=(3, 3), stride=(s_size, s_size), pad=(1, 1))
-        input_channels = self._f[i]
-      elif (i <= self._tbs[1]) and (i >= self._tbs[0]):
+        input_channels = num_filter
+      elif (outer_layer_idx <= self._tbs[1]) and (outer_layer_idx >= self._tbs[0]):
         for inner_layer_idx in range(num_layers):
+          data = mx.sym.BatchNorm(data=data)
           if inner_layer_idx == 0:
             s_size = s_size
           else:
@@ -187,24 +187,24 @@ class FBNet(object):
           for block_idx in range(self._block_size - 1):
             kernel_size = (self._kernel[block_idx], self._kernel[block_idx])
             group = self._group[block_idx]
-            prefix = "layer_%d_%d_block_%d" % (i, inner_layer_idx, block_idx)
+            prefix = "layer_%d_%d_block_%d" % (outer_layer_idx, inner_layer_idx, block_idx)
             expansion = self._e[block_idx]
             stride = (s_size, s_size)
-            # tmp = mx.sym.Convolution(data=data, num_filter=num_filter,
-            #                 kernel=kernel_size, stride=stride)
+
             block_out = block_factory(data, input_channels=input_channels,
                                 num_filters=num_filter, kernel_size=kernel_size,
                                 prefix=prefix, expansion=expansion,
-                                group=group, shuffle=True,
+                                group=group, shuffle=False,
                                 stride=stride)
+            block_out = mx.sym.BatchNorm(data=block_out)
             if (input_channels == num_filter) and (s_size == 1):
               block_out = block_out + data
             block_out = mx.sym.expand_dims(block_out, axis=1)
             block_list.append(block_out)
           # theta parameters, gumbel
-          tmp_name = "layer_%d_%d_%s" % (i, inner_layer_idx, 
+          tmp_name = "layer_%d_%d_%s" % (outer_layer_idx, inner_layer_idx, 
                                        self._theta_unique_name)
-          tmp_gumbel_name = "layer_%d_%d_%s" % (i, inner_layer_idx, "gumbel_random")
+          tmp_gumbel_name = "layer_%d_%d_%s" % (outer_layer_idx, inner_layer_idx, "gumbel_random")
           self._theta_name.append(tmp_name)
           if inner_layer_idx >= 1: # skip part
             theta_var = mx.sym.var(tmp_name, shape=(self._block_size, ))
@@ -219,10 +219,11 @@ class FBNet(object):
             self._m_size.append(self._block_size - 1)
             self._input_shapes[tmp_name] = (self._block_size - 1, )
             self._input_shapes[tmp_gumbel_name] = (self._block_size - 1, )
+            
           self._theta_vars.append(theta_var)
           self._gumbel_vars.append(gumbel_var)
           self._gumbel_var_names.append([tmp_gumbel_name, self._m_size[-1]])
-          
+
           theta = mx.sym.broadcast_div(mx.sym.elemwise_add(theta_var, gumbel_var), self._temperature)
 
           m = mx.sym.repeat(mx.sym.reshape(mx.sym.softmax(theta), (1, -1)), 
@@ -230,19 +231,19 @@ class FBNet(object):
           self._m.append(m)
           m = mx.sym.reshape(m, (-2, 1, 1, 1))
           # TODO why stack wrong
-          data = mx.sym.concat(*block_list, dim=1, name="layer_%d_%d_concat" % (i, inner_layer_idx))
+          data = mx.sym.concat(*block_list, dim=1, name="layer_%d_%d_concat" % (outer_layer_idx, inner_layer_idx))
           data = mx.sym.broadcast_mul(data, m)
           data = mx.sym.sum(data, axis=1)
           input_channels = num_filter
       
-      elif i == len(self._f) - 1:
+      elif outer_layer_idx == len(self._f) - 1:
         # last 1x1 conv part
         data = mx.sym.Convolution(data, num_filter=self._feature_dim,
                                   stride=(s_size, s_size),
                                   kernel=(3, 3),
-                                  name="layer_%d_last_conv" % i)
+                                  name="layer_%d_last_conv" % outer_layer_idx)
       else:
-        raise ValueError("Wrong layer index %d" % i)
+        raise ValueError("Wrong layer index %d" % outer_layer_idx)
     
     # avg pool part
     data = mx.symbol.Pooling(data=data, global_pool=True, 
@@ -279,20 +280,20 @@ class FBNet(object):
   
   def define_loss(self):
     self._logger.info("Define loss")
-    self._softmax_output = mx.sym.softmax(self._output)
+    self._softmax_output = mx.sym.SoftmaxActivation(self._output)
     # TODO There is an error in softmax_cross_entropy
     # ce = mx.sym.softmax_cross_entropy(self._output,
     #                      self._label,
     #                      name='softmax_output')
     ce = -self._label * mx.sym.log(self._softmax_output + self._eps) - \
-      (1 - self._label) * mx.sym.log(1 - self._softmax_output + self._eps)
-    
+      (1.0 - self._label) * mx.sym.log(1.0 - self._softmax_output + self._eps)
+    ce = mx.sym.sum(ce)
     # TODO(ZhouJ) test time in real environment
     for l in range(len(self._m)):
       b_l_i = []
       for i in range(self._m_size[l]):
-        # b_l_i.append(2.0 * (0.8 ** l) * (1.2 ** i))
-        b_l_i.append(1.0)
+        b_tmp = 2.0 * (0.9 ** l) * (1.1 ** i)
+        b_l_i.append(b_tmp)
       self._b["b_%d" % l] = mx.nd.array(b_l_i)
       self._input_shapes["b_%d" % l] = (self._m_size[l], )
       self._b_name.append("b_%d" % l)
@@ -305,8 +306,9 @@ class FBNet(object):
       else:
         lat = lat + mx.sym.sum(self._m[l] * mx.sym.repeat(b_l, 
                                 repeats=self._batch_size, axis=0))
-    loss = mx.sym.sum(ce) * self._alpha * (mx.sym.log(lat) ** self._beta)
+    loss = ce * self._alpha * (mx.sym.log(lat) ** self._beta)
     self._loss = mx.sym.make_loss(loss)
+    self._loss = mx.sym.Group([self._loss, mx.sym.BlockGrad(self._softmax_output)])
     return self._loss
   
   def bind_exe(self, **input_shape):
@@ -314,15 +316,13 @@ class FBNet(object):
     """
     self._logger.info("Bind executor")
     self._input_names = [self._data_name] + [self._label_name] + \
-                        self._b_name
+                        self._b_name + [i[0] for i in self._gumbel_var_names]
     self._arg_names = self._loss.list_arguments()
     self._param_names = [x for x in self._arg_names if x not in self._input_names]
     self.grad_req = {}
     for k in self._arg_names:
       if k in self._param_names:
         self.grad_req[k] = 'write'
-      elif k == self._data_name:
-        self.grad_req[k] = 'null'
       else:
         self.grad_req[k] = 'null'
 
@@ -352,7 +352,8 @@ class FBNet(object):
     if self._label_shape is not None:
       label = mx.nd.one_hot(label, self._label_shape[0])
     self._arg_dict[self._label_name][:] = label
-    self._arg_dict["temperature"][:] = temperature
+    if "temperature" in self._arg_dict.keys():
+      self._arg_dict["temperature"][:] = temperature
 
     self._no_update_params_name = set((self._data_name, self._label_name,
           "temperature"))
@@ -362,13 +363,16 @@ class FBNet(object):
       self._no_update_params_name.add(k)
     
     for k in self._gumbel_var_names:
+      if not k[0] in self._arg_dict.keys():
+        break
       # TODO use random sample, for now use zeros for test
       # The  random gumbel sampled may be too big compared
       # to $\theta$, which may cause unstable and fail to
       # converge
-      # tmp_gumbel = sample_gumbel((k[1], ))
-      # self._arg_dict[k[0]][:] = 1.0 * mx.nd.array(tmp_gumbel)
-      self._arg_dict[k[0]][:] = 1.0 * mx.nd.zeros((k[1]))
+      tmp_gumbel = sample_gumbel((k[1], ))
+      # print(tmp_gumbel)
+      self._arg_dict[k[0]][:] = 1.0 * mx.nd.array(tmp_gumbel)
+      # self._arg_dict[k[0]][:] = 1.0 * mx.nd.zeros((k[1]))
       self._no_update_params_name.add(k[0])
 
     self._exe.forward(is_train=True)
@@ -388,7 +392,6 @@ class FBNet(object):
 
     # for i, pair in enumerate(self._arg_dict.items()):
     #   name, weight = pair
-      
     #   if (not self._theta_unique_name in name) and \
     #      (not name in self._no_update_params_name):
     #     grad = self._grad_dict[name]
@@ -449,9 +452,20 @@ class FBNet(object):
         if nbatch > 1 and (nbatch % self._log_frequence == 0):
           log_toc = time.time()
           speed = 1.0 * n_batches /  (log_toc - log_tic)
-
-          loss = self._exe.outputs[0].asnumpy() / self._batch_size
           eval_str = ''
+          loss = self._exe.outputs[0].asnumpy().sum() / self._batch_size
+          
+          label_ = label_input.asnumpy()
+          if self._label_shape is None:
+            pred_ = self._exe.outputs[0].asnumpy()
+          else:
+            pred_ = self._exe.outputs[1].asnumpy()
+
+          loss = ce(label_, pred_) / self._batch_size
+          pred_a = np.argmax(pred_, axis=1)
+          acc = 1.0 * np.sum(label_ == pred_a) / self._batch_size
+          eval_str += "acc: %f" % acc
+          
           # TODO
           # if self._eval_metric is not None:
           #   for eval_m in self._eval_metric:
@@ -502,7 +516,7 @@ class FBNet(object):
     res = []
     for t in self._theta_name:
       nd = self._arg_dict[t]
-      res.append(nd.asnumpy().reshape((1, -1)))
+      res.append(nd.asnumpy().flatten())
     
     if save:
       c = 0
@@ -511,7 +525,7 @@ class FBNet(object):
       for l in range(len(self._m_size)):
         for b in range(self._m_size[l]):
           s = "Layer: %d Block: %d " %(l, b)
-          s += ' '.join(list(res[c]))
+          s += ' '.join([ i for i in res[c] ])
           c += 1
           save_f.write(s + '\n')
       save_f.close()
@@ -534,10 +548,10 @@ class FBNet(object):
     self.train_w_a(w_s_ds, start_w_epochs-1,
                     start_epoch=0, temperature=init_temperature)
     temperature = init_temperature
-    for epoch in range(start_w_epochs, epochs):
-      self.train_w_a(w_s_ds, epochs=1, start_epoch=epoch)
-      self.train_theta(theta_ds, epochs=1, start_epoch=epoch)
-
+    for epoch in range(start_w_epochs-1, epochs):
+      self.train_w_a(w_s_ds, epochs=1, start_epoch=epoch, 
+                     temperature=temperature)
+      self.train_theta(theta_ds, epochs=1, start_epoch=epoch, 
+                       temperature=temperature)
       self.get_theta(save_path="./epoch_%d_theta.txt" % epoch)
-
       temperature *= temperature_annel

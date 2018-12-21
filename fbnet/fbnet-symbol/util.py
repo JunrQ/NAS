@@ -110,7 +110,44 @@ def inv_gumbel_cdf(y, mu=0.0, beta=1.0, eps=1e-20):
 def sample_gumbel(shape):
     p = np.random.random(shape)
     return inv_gumbel_cdf(p)
-    
+
+
+import os
+import argparse
+import logging
+logging.basicConfig(level=logging.DEBUG)
+import mxnet as mx
+import numpy as np
+import gzip, struct
+import errno
+import subprocess
+
+def download_file(url, local_fname=None, force_write=False):
+    # requests is not default installed
+    import requests
+    if local_fname is None:
+        local_fname = url.split('/')[-1]
+    if not force_write and os.path.exists(local_fname):
+        return local_fname
+
+    dir_name = os.path.dirname(local_fname)
+
+    if dir_name != "":
+        if not os.path.exists(dir_name):
+            try: # try to create the directory if it doesn't exists
+                os.makedirs(dir_name)
+            except OSError as exc:
+                if exc.errno != errno.EEXIST:
+                    raise
+
+    r = requests.get(url, stream=True)
+    assert r.status_code == 200, "failed to open %s" % url
+    with open(local_fname, 'wb') as f:
+        for chunk in r.iter_content(chunk_size=1024):
+            if chunk: # filter out keep-alive new chunks
+                f.write(chunk)
+    return local_fname
+
 def read_data(label, image):
     """
     download and read data into numpy
@@ -131,7 +168,7 @@ def to4d(img):
     """
     return img.reshape(img.shape[0], 1, 28, 28).astype(np.float32)/255
 
-def get_mnist_iter(args, kv):
+def get_mnist_iter(args):
     """
     create data iterator with NDArrayIter
     """
@@ -144,3 +181,9 @@ def get_mnist_iter(args, kv):
     val = mx.io.NDArrayIter(
         to4d(val_img), val_lbl, args.batch_size)
     return (train, val)
+
+def ce(label, pred):
+    label = label.ravel()
+    assert label.shape[0] == pred.shape[0]
+    prob = pred[np.arange(label.shape[0]), np.int64(label)]
+    return -np.log(prob + 1e-9).sum()
