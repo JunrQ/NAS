@@ -495,6 +495,8 @@ class FBNet(object):
   def train_w_a(self, dataset, epochs=1, start_epoch=0, temperature=5.0):
     """Train parameters $w_a$.
     """
+    if epochs <= 0:
+      return
     self._logger.info("Start to train w_a for %d epochs from %d" %
                       (epochs, start_epoch))
     updater_func = lambda x, y: self.update_w_a(x, y, temperature)
@@ -504,6 +506,8 @@ class FBNet(object):
   def train_theta(self, dataset, epochs=1, start_epoch=0, temperature=5.0):
     """Train parameters $\theta$.
     """
+    if epochs <= 0:
+      return
     self._logger.info("Start to train theta for %d epochs from %d" %
                       (epochs, start_epoch))
     updater_func = lambda x, y: self.update_theta(x, y, temperature)
@@ -514,22 +518,20 @@ class FBNet(object):
     """Return theta as list of np.ndarray.
     """
     res = []
+    name = []
     for t in self._theta_name:
       nd = self._arg_dict[t]
       res.append(nd.asnumpy().flatten())
+      name.append(t)
     
     if save:
-      c = 0
       save_f = open(save_path, 'w')
-    
-      for l in range(len(self._m_size)):
-        for b in range(self._m_size[l]):
-          s = "Layer: %d Block: %d " %(l, b)
-          s += ' '.join([ i for i in res[c] ])
-          c += 1
-          save_f.write(s + '\n')
+      for arr, nam in zip(res, name):
+        s = nam + ': '
+        s += ' '.join([str(float(i)) for i in arr])
+        save_f.write(s + '\n')
       save_f.close()
-    return res
+    return res, name
 
   def search(self, 
              w_s_ds,
@@ -537,14 +539,16 @@ class FBNet(object):
              init_temperature=5.0,
              temperature_annel=0.956, # exp(-0.045)
              epochs=90,
-             start_w_epochs=10):
+             start_w_epochs=10,
+             result_prefix=''):
     """Find optimial $\theta$
     """
+    if len(result_prefix) > 0:
+      result_prefix += '_'
     self._build()
     self.define_loss()
     self.bind_exe()
     self.init_optimizer()
-
     self.train_w_a(w_s_ds, start_w_epochs-1,
                     start_epoch=0, temperature=init_temperature)
     temperature = init_temperature
@@ -553,5 +557,6 @@ class FBNet(object):
                      temperature=temperature)
       self.train_theta(theta_ds, epochs=1, start_epoch=epoch, 
                        temperature=temperature)
-      self.get_theta(save_path="./epoch_%d_theta.txt" % epoch)
+      self.get_theta(save_path="./theta-result/%sepoch_%d_theta.txt" % 
+                              (result_prefix, epoch))
       temperature *= temperature_annel

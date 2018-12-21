@@ -16,4 +16,3 @@
   - cosine decaying schedule
   - lat in real environment
   - DataParallel implementation
-  - metric evalutaion
