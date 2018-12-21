@@ -74,4 +74,4 @@ fbnet = FBNet(batch_size=args.batch_size,
               feature_dim=args.feature_dim,
               model_type=args.model_type)
 
-fbnet.search(train_w_ds, train_theta_ds)
+fbnet.search(train_w_ds, train_theta_ds, start_w_epochs=3)

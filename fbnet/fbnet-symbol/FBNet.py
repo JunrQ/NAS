@@ -315,10 +315,10 @@ class FBNet(object):
     self._logger.info("Bind executor")
     self._input_names = [self._data_name] + [self._label_name] + \
                         self._b_name
-    arg_names = self._loss.list_arguments()
-    self._param_names = [x for x in arg_names if x not in self._input_names]
+    self._arg_names = self._loss.list_arguments()
+    self._param_names = [x for x in self._arg_names if x not in self._input_names]
     self.grad_req = {}
-    for k in arg_names:
+    for k in self._arg_names:
       if k in self._param_names:
         self.grad_req[k] = 'write'
       elif k == self._data_name:
@@ -379,23 +379,25 @@ class FBNet(object):
     """
     self.forward_backward(data, label, temperature)
 
-    # for i, pair in enumerate(zip(self._param_arrays, self._grad_arrays)):
-    #   name = self._param_names[i]
-    #   weight, grad = pair
+    for i, pair in enumerate(zip(self._param_arrays, self._grad_arrays)):
+      name = self._arg_names[i]
+      weight, grad = pair
+      if (not self._theta_unique_name in name) and \
+         (not name in self._no_update_params_name):
+        self._w_updater(i, grad, weight)
+
+    # for i, pair in enumerate(self._arg_dict.items()):
+    #   name, weight = pair
+      
     #   if (not self._theta_unique_name in name) and \
     #      (not name in self._no_update_params_name):
     #     grad = self._grad_dict[name]
+    #     if name == 'convolution0_weight':
+    #       print(name, weight, grad)
     #     self._w_updater(i, grad, weight)
-
-    for i, pair in enumerate(self._arg_dict.items()):
-      name, weight = pair
-      if (not self._theta_unique_name in name) and \
-         (not name in self._no_update_params_name):
-        grad = self._grad_dict[name]
-        self._w_updater(i, grad, weight)
-      else:
-        # print(pair) # check init
-        pass
+    #   else:
+    #     # print(pair) # check init
+    #     pass
 
 
   def update_theta(self, data, label, temperature):
@@ -498,8 +500,9 @@ class FBNet(object):
     """Return theta as list of np.ndarray.
     """
     res = []
-    for t in self._theta_vars:
-      res.append(t.asnumpy().reshape((-1, )))
+    for t in self._theta_name:
+      nd = self._arg_dict[t]
+      res.append(nd.asnumpy().reshape((1, -1)))
     
     if save:
       c = 0
@@ -507,11 +510,9 @@ class FBNet(object):
     
       for l in range(len(self._m_size)):
         for b in range(self._m_size[l]):
-          s = "Layer: l Block: b "
-
+          s = "Layer: %d Block: %d " %(l, b)
           s += ' '.join(list(res[c]))
           c += 1
-
           save_f.write(s + '\n')
       save_f.close()
     return res
@@ -528,7 +529,7 @@ class FBNet(object):
     self._build()
     self.define_loss()
     self.bind_exe()
-    self.init_optimizer()    
+    self.init_optimizer()
 
     self.train_w_a(w_s_ds, start_w_epochs-1,
                     start_epoch=0, temperature=init_temperature)
