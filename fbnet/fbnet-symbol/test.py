@@ -44,6 +44,7 @@ parser.set_defaults(
   hsv_adjust_prob=0.1,
   train_rec_path='/home1/data/zhuzhou/MsCeleb_SrvA2_clean/MsCeleb_clean1_2w_train_2k.rec',
   isgray=False,
+  lr_decay_step=[30, 50, 70],
 )
 args = parser.parse_args()
 train_w_ds = get_train_ds(args)
@@ -76,4 +77,5 @@ fbnet = FBNet(batch_size=args.batch_size,
               feature_dim=args.feature_dim,
               model_type=args.model_type)
 
-fbnet.search(train, val, start_w_epochs=3)
+fbnet.search(train, val, start_w_epochs=10, lr_decay_step=args.lr_decay_step, 
+             result_prefix=args.model_type)

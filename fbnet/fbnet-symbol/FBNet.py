@@ -64,7 +64,7 @@ class FBNet(object):
                4, 4, 4, 1,
                1]
     self._s = [1, 1, 2, 2,
-               1, 1, 1, 1,
+               2, 1, 2, 1,
                1]
     assert len(self._f) == len(self._n) == len(self._s)
     self._e = [1, 1, 3, 6,
@@ -135,20 +135,23 @@ class FBNet(object):
       self._label_index = mx.sym.var("label_index")
       self._input_shapes.setdefault('label_index', (self._batch_size, ))
 
-  def init_optimizer(self, lr_decay_step=None):
+  def init_optimizer(self, lr_decay_step=None, cosine_decay_step=None):
     """Init optimizer, define updater.
     """
-    optimizer_params={'learning_rate':0.001,
+    optimizer_params={'learning_rate':0.01,
                       'momentum':0.9,
                       'wd':1e-4}
     # TODO for w_a update, origin parper use cosine decaying schedule
+    batch_num = self._num_examples / self._batch_size
+    self._batch_num = batch_num
     if lr_decay_step is not None:
-      batch_num = self._num_examples / self._batch_size
       steps = [int(batch_num * i) for i in lr_decay_step]
       lr_scheduler = mx.lr_scheduler.MultiFactorScheduler(
           step=steps,
           factor=0.1)
       optimizer_params.setdefault("lr_scheduler", lr_scheduler)
+    if cosine_decay_step is not None:
+      pass
     
     self._w_updater = mx.optimizer.get_updater(
       mx.optimizer.create('sgd', **optimizer_params))
@@ -473,8 +476,8 @@ class FBNet(object):
           #     eval_result = eval_m.get()
           #     eval_str += "[%s: %f]" % (eval_result[0], eval_result[1])
           
-          self._logger.info("Epoch[%d] Batch[%d] Speed: %.3f samples/sec Loss: %f %s" % 
-                            (epoch, nbatch, speed, loss, eval_str))
+          self._logger.info("Epoch[%d] Batch[%d/%d] Speed: %.3f samples/sec Loss: %f %s" % 
+                            (epoch, nbatch, self._batch_num, speed, loss, eval_str))
           log_tic = time.time()
         
         if nbatch > 1 and (nbatch % self._save_frequence == 0):
@@ -540,7 +543,9 @@ class FBNet(object):
              temperature_annel=0.956, # exp(-0.045)
              epochs=90,
              start_w_epochs=10,
-             result_prefix=''):
+             result_prefix='',
+             lr_decay_step=None,
+             cosine_decay_step=None):
     """Find optimial $\theta$
     """
     if len(result_prefix) > 0:
@@ -548,7 +553,8 @@ class FBNet(object):
     self._build()
     self.define_loss()
     self.bind_exe()
-    self.init_optimizer()
+    self.init_optimizer(lr_decay_step=lr_decay_step, 
+            cosine_decay_step=cosine_decay_step)
     self.train_w_a(w_s_ds, start_w_epochs-1,
                     start_epoch=0, temperature=init_temperature)
     temperature = init_temperature
