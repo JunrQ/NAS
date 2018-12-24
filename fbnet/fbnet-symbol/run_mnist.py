@@ -4,7 +4,6 @@ import sys
 import logging
 from time import gmtime, strftime
 import time
-sys.path.insert(0, '/home/zhouchangqing/mxnet/incubator-mxnet_12_20/python')
 import mxnet as mx
 from FBNet import FBNet
 from util import _logger, get_train_ds, _set_file, get_mnist_iter
@@ -18,8 +17,8 @@ parser.add_argument('--epochs', type=int, default=20,
                     help='number of training epochs.')
 parser.add_argument('--queue-size', type=int, default=20,
                     help='train data queue size, used for shuffle.')
-parser.add_argument('--model-type', type=str, default='amsoftmax',
-                    help='top model type, default is amsoftmax')
+parser.add_argument('--model-type', type=str, default='softmax',
+                    help='top model type, default is softmax')
 parser.add_argument('--log-frequence', type=int, default=400,
                     help='log frequence, default is 400')
 parser.add_argument('--patch-idx', type=int, default=0,
@@ -29,11 +28,9 @@ parser.add_argument('--patch-size', type=int, default=1,
 parser.add_argument('--gpu', type=int, default=0,
                     help='gpu, default is 0')
 parser.set_defaults(
-  num_classes=2000,
-  # num_classes=10,
-  num_examples=107588,
-  image_shape='3,108,108',
-  # image_shape='1,28,28',
+  num_classes=10,
+  num_examples=107588, # This is not true.
+  image_shape='1,28,28',
   feature_dim=192,
   conv_workspace=1024,  # this is the default value
   save_checkpoint_frequence=30000,
@@ -44,26 +41,19 @@ parser.set_defaults(
   force2color='false',
   illum_trans_prob=0.3,
   hsv_adjust_prob=0.1,
-  train_rec_path='/home1/data/zhuzhou/MsCeleb_SrvA2_clean/MsCeleb_clean1_2w_train_2k.rec',
   isgray=False,
-  lr_decay_step=[8, 25, 60],
+  lr_decay_step=[5, 15, 30],
 )
 args = parser.parse_args()
-train_w_ds = get_train_ds(args)
 
-args.model_save_path = '/home1/nas/fbnet/%s/' % \
-                (time.strftime('%Y-%m-%d', time.localtime(time.time())))
+args.model_save_path = './log/'
 
 if not os.path.exists(args.model_save_path):
   _logger.warn("{} not exists, create it".format(args.model_save_path))
   os.makedirs(args.model_save_path)
 _set_file(args.model_save_path + 'log.log')
 
-args.num_examples = 26246
-args.train_rec_path = '/home1/data/zhuzhou/MsCeleb_SrvA2_clean/MsCeleb_clean1_2w_val_2k.rec'
-train_theta_ds = get_train_ds(args)
-# train, val = get_mnist_iter(args)
-train, val = train_w_ds, train_theta_ds
+train, val = get_mnist_iter(args)
 
 
 fbnet = FBNet(batch_size=args.batch_size,
@@ -71,8 +61,7 @@ fbnet = FBNet(batch_size=args.batch_size,
               label_shape=(args.num_classes, ),
               logger=_logger,
               input_shape=[int(i) for i in args.image_shape.split(',')],
-              ctxs=mx.gpu(args.gpu),
-              # eval_metric=['acc', 'ce'] # TODO
+              ctxs=mx.gpu(args.gpu) if args.gpu>=0 else mx.cpu(),
               num_examples=args.num_examples,
               log_frequence=args.log_frequence,
               save_frequence=args.save_checkpoint_frequence,

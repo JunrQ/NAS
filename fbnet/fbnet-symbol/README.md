@@ -1,6 +1,12 @@
 # FBNet: Hardware-Aware Efficient ConvNet Design via Differentiable Neural Architecture Search
 **MXNet** implementation.
 
+**To run with mnist**: Open an terminal, and run the code
+```shell
+python run_mnist.py --batch-size 32 --gpu 1 --log-frequence 50
+```
+
+**Code:**
 * `blocks.py`: Define blocks symbols
 * `FBNet.py`: Define FBNet Class.
 * `util.py`: Define some functions.

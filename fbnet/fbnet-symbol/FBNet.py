@@ -63,9 +63,14 @@ class FBNet(object):
     self._n = [1, 1, 4, 4,
                4, 4, 4, 1,
                1]
-    self._s = [1, 1, 2, 2,
-               2, 1, 2, 1,
-               1]
+    if input_shape[-1] == 28: # mnist
+      self._s = [1, 1, 2, 2,
+                1, 1, 1, 1,
+                1]
+    else:
+      self._s = [1, 1, 2, 2,
+                2, 1, 2, 1,
+                1]
     assert len(self._f) == len(self._n) == len(self._s)
     self._e = [1, 1, 3, 6,
                1, 1, 3, 6]
@@ -140,6 +145,7 @@ class FBNet(object):
     """
     optimizer_params_w={'learning_rate':0.001,
                       'momentum':0.9,
+                      'clip_gradient': 10.0,
                       'wd':1e-4}
     # TODO for w_a update, origin parper use cosine decaying schedule
     batch_num = self._num_examples / self._batch_size
@@ -467,7 +473,7 @@ class FBNet(object):
             pred_ = self._exe.outputs[0].asnumpy()
           else:
             pred_ = self._exe.outputs[1].asnumpy()
-          print(pred_)
+          # print(pred_)
 
           loss = ce(label_, pred_) / self._batch_size
           pred_a = np.argmax(pred_, axis=1)

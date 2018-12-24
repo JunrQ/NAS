@@ -2,3 +2,4 @@
 *out
 .vscode/*
 *.gz
+/fbnet/fbnet-symbol/log/
