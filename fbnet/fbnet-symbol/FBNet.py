@@ -138,7 +138,7 @@ class FBNet(object):
   def init_optimizer(self, lr_decay_step=None, cosine_decay_step=None):
     """Init optimizer, define updater.
     """
-    optimizer_params={'learning_rate':0.01,
+    optimizer_params_w={'learning_rate':0.001,
                       'momentum':0.9,
                       'wd':1e-4}
     # TODO for w_a update, origin parper use cosine decaying schedule
@@ -149,19 +149,19 @@ class FBNet(object):
       lr_scheduler = mx.lr_scheduler.MultiFactorScheduler(
           step=steps,
           factor=0.1)
-      optimizer_params.setdefault("lr_scheduler", lr_scheduler)
+      optimizer_params_w.setdefault("lr_scheduler", lr_scheduler)
     if cosine_decay_step is not None:
+      # TODO
       pass
     
     self._w_updater = mx.optimizer.get_updater(
-      mx.optimizer.create('sgd', **optimizer_params))
+      mx.optimizer.create('sgd', **optimizer_params_w))
 
-    optimizer_params['learning_rate'] = 0.01
-    optimizer_params['wd'] = 5e-4
-    optimizer_params.pop('momentum')
+    optimizer_params_theta={'learning_rate':0.1,
+                      'wd':5e-4}
     
     self._theta_updater = mx.optimizer.get_updater(
-      mx.optimizer.create('adam', **optimizer_params))
+      mx.optimizer.create('adam', **optimizer_params_theta))
   
   def _build(self):
     """Build symbol.
@@ -176,10 +176,12 @@ class FBNet(object):
       if outer_layer_idx == 0:
         data = mx.sym.Convolution(data=data, num_filter=num_filter,
                   kernel=(3, 3), stride=(s_size, s_size), pad=(1, 1))
+        # data = mx.sym.BatchNorm(data=data, fix_gamma=False, eps=2e-5, momentum=0.9)
+        data = mx.sym.Activation(data=data, act_type='relu')
         input_channels = num_filter
       elif (outer_layer_idx <= self._tbs[1]) and (outer_layer_idx >= self._tbs[0]):
         for inner_layer_idx in range(num_layers):
-          data = mx.sym.BatchNorm(data=data)
+          data = mx.sym.BatchNorm(data=data, fix_gamma=False, eps=2e-5, momentum=0.9)
           if inner_layer_idx == 0:
             s_size = s_size
           else:
@@ -198,8 +200,8 @@ class FBNet(object):
                                 num_filters=num_filter, kernel_size=kernel_size,
                                 prefix=prefix, expansion=expansion,
                                 group=group, shuffle=False,
-                                stride=stride)
-            block_out = mx.sym.BatchNorm(data=block_out)
+                                stride=stride, bn=False)
+            # block_out = mx.sym.BatchNorm(data=block_out, fix_gamma=False, eps=2e-5, momentum=0.9)
             if (input_channels == num_filter) and (s_size == 1):
               block_out = block_out + data
             block_out = mx.sym.expand_dims(block_out, axis=1)
@@ -240,8 +242,10 @@ class FBNet(object):
           input_channels = num_filter
       
       elif outer_layer_idx == len(self._f) - 1:
-        # last 1x1 conv part
-        data = mx.sym.Convolution(data, num_filter=self._feature_dim,
+        # last 1x1 conv part# Add a bn layer
+        data = mx.sym.BatchNorm(data=data, fix_gamma=False, eps=2e-5, momentum=0.9)
+        data = mx.sym.Activation(data=data, act_type='relu')
+        data = mx.sym.Convolution(data, num_filter=num_filter,
                                   stride=(s_size, s_size),
                                   kernel=(3, 3),
                                   name="layer_%d_last_conv" % outer_layer_idx)
@@ -253,6 +257,7 @@ class FBNet(object):
         kernel=(7, 7), pool_type='avg', name="global_pool")
   
     data = mx.symbol.Flatten(data=data, name='flat_pool')
+    data = mx.symbol.FullyConnected(data=data, num_hidden=self._feature_dim)
     # fc part
     if self._model_type == 'softmax':
       data = mx.symbol.FullyConnected(name="output_fc", 
@@ -261,7 +266,7 @@ class FBNet(object):
       s = 30.0
       margin = 0.35
       data = mx.symbol.L2Normalization(data, mode='instance', eps=1e-8) * s
-      w = mx.sym.Variable('fc_weight', # init=mx.init.Xavier(magnitude=2),
+      w = mx.sym.Variable('fc_weight', init=mx.init.Xavier(magnitude=2),
                         shape=(self._output_dim, self._feature_dim), dtype=np.float32)
       norm_w = mx.symbol.L2Normalization(w, mode='instance', eps=1e-8)
       data = mx.symbol.AmSoftmax(data, weight=norm_w, num_hidden=self._output_dim,
@@ -272,7 +277,7 @@ class FBNet(object):
       s = 64.0
       margin = 0.5
       data = mx.symbol.L2Normalization(data, mode='instance', eps=1e-8) * s
-      w = mx.sym.Variable('fc_weight', # init=mx.init.Xavier(magnitude=2),
+      w = mx.sym.Variable('fc_weight', init=mx.init.Xavier(magnitude=2),
                         shape=(self._output_dim, self._feature_dim), dtype=np.float32)
       norm_w = mx.symbol.L2Normalization(w, mode='instance', eps=1e-8)
       data = mx.symbol.Arcface(data, weight=norm_w, num_hidden=self._output_dim,
@@ -373,7 +378,6 @@ class FBNet(object):
       # to $\theta$, which may cause unstable and fail to
       # converge
       tmp_gumbel = sample_gumbel((k[1], ))
-      # print(tmp_gumbel)
       self._arg_dict[k[0]][:] = 1.0 * mx.nd.array(tmp_gumbel)
       # self._arg_dict[k[0]][:] = 1.0 * mx.nd.zeros((k[1]))
       self._no_update_params_name.add(k[0])
@@ -463,6 +467,7 @@ class FBNet(object):
             pred_ = self._exe.outputs[0].asnumpy()
           else:
             pred_ = self._exe.outputs[1].asnumpy()
+          print(pred_)
 
           loss = ce(label_, pred_) / self._batch_size
           pred_a = np.argmax(pred_, axis=1)

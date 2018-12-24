@@ -47,7 +47,6 @@ def block_factory(input_symbol, input_channels,
   stride : tuple
 
   """
-  assert not bn
   # 1*1 group conv
   data = input_symbol
   data = mx.sym.Convolution(data=data, num_filter=input_channels*expansion, 
