@@ -187,3 +187,44 @@ def ce(label, pred):
     assert label.shape[0] == pred.shape[0]
     prob = pred[np.arange(label.shape[0]), np.int64(label)]
     return -np.log(prob + 1e-9).sum()
+
+# Cosine Decay scheduler
+# class CosineDecayScheduler(LRScheduler):
+#     """ Cosine Decay Scheduler.
+#     (ZhouJ)
+
+#     Parameters
+#     ----------
+#        base_lr: float, base learning rate
+#        first_decay_step: int, decay steps, T_0
+#        t_mul: float
+#        m_mul: float
+#        alpha: float, lr_min / lr_max
+
+#     """
+#     def __init__(self, first_decay_step, t_mul=2.0, m_mul=0.5, alpha=0.001, base_lr=0.01):
+#         super(CosineDecayScheduler, self).__init__(base_lr)
+#         assert isinstance(first_decay_step, int)
+#         if first_decay_step < 1:
+#             raise ValueError("decay_step must be strictly positive")
+#         self.global_step = 0
+#         self.T_0 = first_decay_step
+#         self.t_mul = t_mul
+#         self.m_mul = m_mul
+#         self.init_lr = base_lr
+#         self.alpha = alpha
+
+#     def __call__(self, num_update):
+#         T_cur = num_update - self.global_step
+#         assert T_cur >= 0
+#         if T_cur >= self.T_0:
+#             # restart
+#             self.global_step = num_update
+#             self.init_lr *= self.m_mul
+#             self.base_lr = self.init_lr
+#             self.T_0 = int(self.T_0 * self.t_mul)
+#         else:
+#             cosine_decay = 0.5 * (1 + math.cos(math.pi * T_cur / self.T_0))
+#             decayed = (1 - self.alpha) * cosine_decay + self.alpha
+#             self.base_lr = self.init_lr * decayed
+#         return self.base_lr

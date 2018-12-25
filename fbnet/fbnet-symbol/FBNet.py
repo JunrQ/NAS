@@ -134,7 +134,7 @@ class FBNet(object):
                           label_name: (self._batch_size, ) if label_shape is None else \
                                       (self._batch_size, ) + self._label_shape,
                           "temperature": (1, )}
-    
+
     assert model_type in ['softmax', 'amsoftmax', 'arcface']
     if model_type != 'softmax':
       self._label_index = mx.sym.var("label_index")
@@ -143,9 +143,9 @@ class FBNet(object):
   def init_optimizer(self, lr_decay_step=None, cosine_decay_step=None):
     """Init optimizer, define updater.
     """
-    optimizer_params_w={'learning_rate':0.001,
+    optimizer_params_w={'learning_rate':0.005,
                       'momentum':0.9,
-                      'clip_gradient': 10.0,
+                      # 'clip_gradient': 10.0,
                       'wd':1e-4}
     # TODO for w_a update, origin parper use cosine decaying schedule
     batch_num = self._num_examples / self._batch_size
@@ -154,18 +154,18 @@ class FBNet(object):
       steps = [int(batch_num * i) for i in lr_decay_step]
       lr_scheduler = mx.lr_scheduler.MultiFactorScheduler(
           step=steps,
-          factor=0.1)
+          factor=0.2)
       optimizer_params_w.setdefault("lr_scheduler", lr_scheduler)
     if cosine_decay_step is not None:
-      # TODO
-      pass
-    
+      lr_scheduler = mx.lr_scheduler.CosineDecayScheduler(
+          first_decay_step=cosine_decay_step,
+          t_mul=2.0, m_mul=0.9, alpha=0.001, base_lr=0.005)
+      optimizer_params_w.setdefault("lr_scheduler", lr_scheduler)
     self._w_updater = mx.optimizer.get_updater(
       mx.optimizer.create('sgd', **optimizer_params_w))
 
     optimizer_params_theta={'learning_rate':0.1,
-                      'wd':5e-4}
-    
+                            'wd':5e-4}
     self._theta_updater = mx.optimizer.get_updater(
       mx.optimizer.create('adam', **optimizer_params_theta))
   
