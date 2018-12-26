@@ -47,7 +47,7 @@ parser.set_defaults(
   train_rec_path='/home1/data/zhuzhou/MsCeleb_SrvA2_clean/MsCeleb_clean1_2w_train_2k.rec',
   isgray=False,
   lr_decay_step=[15, 35, 60, 95],
-  cosine_decay_step=1000,
+  cosine_decay_step=2000,
 )
 args = parser.parse_args()
 train_w_ds = get_train_ds(args)
