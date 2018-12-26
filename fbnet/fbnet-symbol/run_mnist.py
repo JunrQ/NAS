@@ -4,6 +4,7 @@ import sys
 import logging
 from time import gmtime, strftime
 import time
+sys.path.insert(0, '/home/zhouchangqing/mxnet/incubator-mxnet_12_20/python')
 import mxnet as mx
 from FBNet import FBNet
 from util import _logger, get_train_ds, _set_file, get_mnist_iter
@@ -61,12 +62,13 @@ fbnet = FBNet(batch_size=args.batch_size,
               label_shape=(args.num_classes, ),
               logger=_logger,
               input_shape=[int(i) for i in args.image_shape.split(',')],
-              ctxs=mx.gpu(args.gpu) if args.gpu>=0 else mx.cpu(),
+              ctxs=mx.gpu(args.gpu) if args.gpu >= 0 else mx.cpu(),
               num_examples=args.num_examples,
               log_frequence=args.log_frequence,
               save_frequence=args.save_checkpoint_frequence,
               feature_dim=args.feature_dim,
               model_type=args.model_type)
 
-fbnet.search(train, val, start_w_epochs=10, lr_decay_step=args.lr_decay_step, 
+fbnet.search(train, val, start_w_epochs=10, 
+             lr_decay_step=args.lr_decay_step, 
              result_prefix=args.model_type)

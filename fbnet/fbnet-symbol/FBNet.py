@@ -303,10 +303,13 @@ class FBNet(object):
       (1.0 - self._label) * mx.sym.log(1.0 - self._softmax_output + self._eps)
     ce = mx.sym.sum(ce)
     # TODO(ZhouJ) test time in real environment
+    speed_f = open('speed.txt', 'r').readlines()
     for l in range(len(self._m)):
       b_l_i = []
+      speed_b_tmp = speed_f[l].strip().split(' ')
       for i in range(self._m_size[l]):
-        b_tmp = 2.0 * (0.9 ** l) * (1.1 ** i)
+        # b_tmp = 2.0 * (0.9 ** l) * (1.1 ** i)
+        b_tmp = float(speed_b_tmp[i])
         b_l_i.append(b_tmp)
       self._b["b_%d" % l] = mx.nd.array(b_l_i)
       self._input_shapes["b_%d" % l] = (self._m_size[l], )
@@ -487,8 +490,8 @@ class FBNet(object):
           #     eval_result = eval_m.get()
           #     eval_str += "[%s: %f]" % (eval_result[0], eval_result[1])
           
-          self._logger.info("Epoch[%d] Batch[%d/%d] Speed: %.3f samples/sec Loss: %f %s" % 
-                            (epoch, nbatch, self._batch_num, speed, loss, eval_str))
+          self._logger.info("Epoch[%d] Batch[%d] Speed: %.3f samples/sec Loss: %f %s" % 
+                            (epoch, nbatch, speed, loss, eval_str))
           log_tic = time.time()
         
         if nbatch > 1 and (nbatch % self._save_frequence == 0):

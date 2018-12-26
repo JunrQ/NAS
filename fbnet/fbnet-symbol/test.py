@@ -81,4 +81,4 @@ fbnet = FBNet(batch_size=args.batch_size,
               model_type=args.model_type)
 
 fbnet.search(train, val, start_w_epochs=10, # lr_decay_step=args.lr_decay_step, 
-             result_prefix=args.model_type, cosine_decay_step=args.cosine_decay_step)
+             result_prefix=args.model_type + '_1080Ti', cosine_decay_step=args.cosine_decay_step)
