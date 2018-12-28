@@ -143,10 +143,10 @@ class FBNet(object):
   def init_optimizer(self, lr_decay_step=None, cosine_decay_step=None):
     """Init optimizer, define updater.
     """
-    optimizer_params_w={'learning_rate':0.005,
-                      'momentum':0.9,
-                      # 'clip_gradient': 10.0,
-                      'wd':1e-4}
+    optimizer_params_w = {'learning_rate':0.005,
+                          'momentum':0.9,
+                          # 'clip_gradient': 10.0,
+                          'wd':1e-4}
     # TODO for w_a update, origin parper use cosine decaying schedule
     batch_num = self._num_examples / self._batch_size
     self._batch_num = batch_num
@@ -159,7 +159,7 @@ class FBNet(object):
     if cosine_decay_step is not None:
       lr_scheduler = mx.lr_scheduler.CosineDecayScheduler(
           first_decay_step=cosine_decay_step,
-          t_mul=2.0, m_mul=0.9, alpha=0.001, base_lr=0.005)
+          t_mul=2.0, m_mul=0.9, alpha=0.001, base_lr=0.001)
       optimizer_params_w.setdefault("lr_scheduler", lr_scheduler)
     self._w_updater = mx.optimizer.get_updater(
       mx.optimizer.create('sgd', **optimizer_params_w))
@@ -323,7 +323,8 @@ class FBNet(object):
       else:
         lat = lat + mx.sym.sum(self._m[l] * mx.sym.repeat(b_l, 
                                 repeats=self._batch_size, axis=0))
-    loss = ce * self._alpha * (mx.sym.log(lat) ** self._beta)
+    # loss = ce * self._alpha * (mx.sym.log(lat) ** self._beta)
+    loss = ce + self._alpha * (mx.sym.log(lat) ** self._beta)
     self._loss = mx.sym.make_loss(loss)
     self._loss = mx.sym.Group([self._loss, mx.sym.BlockGrad(self._softmax_output)])
     return self._loss
@@ -469,7 +470,7 @@ class FBNet(object):
           log_toc = time.time()
           speed = 1.0 * n_batches /  (log_toc - log_tic)
           eval_str = ''
-          loss = self._exe.outputs[0].asnumpy().sum() / self._batch_size
+          total_loss = self._exe.outputs[0].asnumpy().sum() / self._batch_size
           
           label_ = label_input.asnumpy()
           if self._label_shape is None:
@@ -490,8 +491,8 @@ class FBNet(object):
           #     eval_result = eval_m.get()
           #     eval_str += "[%s: %f]" % (eval_result[0], eval_result[1])
           
-          self._logger.info("Epoch[%d] Batch[%d] Speed: %.3f samples/sec Loss: %f %s" % 
-                            (epoch, nbatch, speed, loss, eval_str))
+          self._logger.info("Epoch[%d] Batch[%d] Speed: %.3f samples/sec loss: %f ce: %f %s" % 
+                            (epoch, nbatch, speed, total_loss, loss, eval_str))
           log_tic = time.time()
         
         if nbatch > 1 and (nbatch % self._save_frequence == 0):
