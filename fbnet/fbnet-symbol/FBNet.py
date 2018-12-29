@@ -12,7 +12,7 @@ from util import sample_gumbel, ce
 
 class FBNet(object):
   def __init__(self, batch_size, output_dim,
-               alpha=0.8, beta=0.6,
+               alpha=0.2, beta=0.6,
                feature_dim=192,
                model_type='amsoftmax',
                input_shape=(3, 108, 108),
@@ -63,10 +63,10 @@ class FBNet(object):
     """
     self._f = [16, 16, 24, 32, 
                64, 112, 184, 352,
-               1984]
+               1024, 1984]
     self._n = [1, 1, 4, 4,
-               4, 4, 4, 1,
-               1]
+               4, 4, 4, 4,
+               4, 1]
     if input_shape[-1] == 28: # mnist
       self._s = [1, 1, 2, 2,
                 1, 1, 1, 1,
@@ -74,7 +74,7 @@ class FBNet(object):
     else:
       self._s = [1, 1, 2, 2,
                 2, 1, 2, 1,
-                1]
+                1, 1]
     assert len(self._f) == len(self._n) == len(self._s)
     self._e = [1, 1, 3, 6,
                1, 1, 3, 6]
@@ -157,7 +157,7 @@ class FBNet(object):
   def init_optimizer(self, lr_decay_step=None, cosine_decay_step=None):
     """Init optimizer, define updater.
     """
-    optimizer_params_w = {'learning_rate':0.01,
+    optimizer_params_w = {'learning_rate':0.005,
                           'momentum':0.9,
                           # 'clip_gradient': 10.0,
                           'wd':1e-4}
@@ -177,7 +177,7 @@ class FBNet(object):
     self._w_updater = mx.optimizer.get_updater(
       mx.optimizer.create('sgd', **optimizer_params_w))
 
-    optimizer_params_theta={'learning_rate':0.1,
+    optimizer_params_theta={'learning_rate':0.01,
                             'wd':5e-4}
     self._theta_updater = mx.optimizer.get_updater(
       mx.optimizer.create('adam', **optimizer_params_theta))

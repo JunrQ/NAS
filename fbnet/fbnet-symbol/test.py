@@ -29,11 +29,11 @@ parser.add_argument('--patch-size', type=int, default=1,
 parser.add_argument('--gpus', type=str, default='0',
                     help='gpus, default is 0')
 parser.set_defaults(
-  # num_classes=2000,
+  num_classes=2000,
   # num_classes=10,
-  num_classes = 81968,
-  # num_examples=107588,
-  num_examples = int(3551853 * 0.8),
+  # num_classes = 81968,
+  num_examples=107588,
+  # num_examples = int(3551853 * 0.8),
   image_shape='3,108,108',
   # image_shape='1,28,28',
   feature_dim=192,
@@ -46,9 +46,9 @@ parser.set_defaults(
   force2color='false',
   illum_trans_prob=0.3,
   hsv_adjust_prob=0.1,
-  # train_rec_path='/home1/data/zhuzhou/MsCeleb_SrvA2_clean/MsCeleb_clean1_2w_train_2k.rec',
+  train_rec_path='/home1/data/zhuzhou/MsCeleb_SrvA2_clean/MsCeleb_clean1_2w_train_2k.rec',
   # train_rec_path='/mnt/data4/zcq/10w/zhuzhou/MsCeleb_SrvA2_clean/MsCeleb_clean1_2w_train_2k.rec',
-  train_rec_path='/mnt/data4/zcq/10w/zhuzhou/MsCeleb_SrvA2_clean/MsCeleb_clean_train.rec',
+  # train_rec_path='/mnt/data4/zcq/10w/zhuzhou/MsCeleb_SrvA2_clean/MsCeleb_clean_train.rec',
   isgray=False,
   lr_decay_step=[15, 35, 60, 95],
   cosine_decay_step=2000,
@@ -64,10 +64,11 @@ if not os.path.exists(args.model_save_path):
   os.makedirs(args.model_save_path)
 _set_file(args.model_save_path + 'log.log')
 
-# args.num_examples = 26246
-args.num_examples = int(3551853 * 0.2)
+args.num_examples = 26246
+# args.num_examples = int(3551853 * 0.2)
+args.train_rec_path='/home1/data/zhuzhou/MsCeleb_SrvA2_clean/MsCeleb_clean1_2w_val_2k.rec'
 # args.train_rec_path = '/mnt/data4/zcq/10w/zhuzhou/MsCeleb_SrvA2_clean/MsCeleb_clean1_2w_val_2k.rec'
-args.train_rec_path = '/mnt/data4/zcq/10w/zhuzhou/MsCeleb_SrvA2_clean/MsCeleb_clean_valid.rec'
+# args.train_rec_path = '/mnt/data4/zcq/10w/zhuzhou/MsCeleb_SrvA2_clean/MsCeleb_clean_valid.rec'
 train_theta_ds = get_train_ds(args)
 # train, val = get_mnist_iter(args)
 train, val = train_w_ds, train_theta_ds
@@ -76,6 +77,7 @@ train, val = train_w_ds, train_theta_ds
 fbnet = FBNet(batch_size=args.batch_size,
               output_dim=args.num_classes,
               label_shape=(args.num_classes, ),
+              alpha=0.2,
               logger=_logger,
               input_shape=[int(i) for i in args.image_shape.split(',')],
               ctxs=[mx.gpu(int(i)) for i in args.gpus.strip().split(',')],
@@ -87,4 +89,4 @@ fbnet = FBNet(batch_size=args.batch_size,
               model_type=args.model_type)
 
 fbnet.search(train, val, start_w_epochs=10, # lr_decay_step=args.lr_decay_step, 
-             result_prefix=args.model_type + '_1080Ti_plus', cosine_decay_step=args.cosine_decay_step)
+             result_prefix=args.model_type + '_1080Ti_plus_e1', cosine_decay_step=args.cosine_decay_step)
