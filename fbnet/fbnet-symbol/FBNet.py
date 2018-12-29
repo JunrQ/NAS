@@ -407,7 +407,7 @@ class FBNet(object):
       self._arg_dict[i][self._data_name][:] = data_slice[i]
       if self._model_type != 'softmax':
         label_index = label_slice[i]
-        self._arg_dict[i]['label_index'][i][:] = label_index
+        self._arg_dict[i]['label_index'][:] = label_index
       label_ = mx.nd.one_hot(label_slice[i], self._label_shape[0])
       self._arg_dict[i][self._label_name][:] = label_
       if "temperature" in self._arg_dict[i].keys():
