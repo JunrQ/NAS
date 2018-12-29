@@ -12,7 +12,7 @@ from util import sample_gumbel, ce
 
 class FBNet(object):
   def __init__(self, batch_size, output_dim,
-               alpha=0.8, beta=0.6,
+               alpha=0.2, beta=0.6,
                feature_dim=192,
                model_type='amsoftmax',
                input_shape=(3, 108, 108),
@@ -177,7 +177,7 @@ class FBNet(object):
     self._w_updater = mx.optimizer.get_updater(
       mx.optimizer.create('sgd', **optimizer_params_w))
 
-    optimizer_params_theta={'learning_rate':0.1,
+    optimizer_params_theta={'learning_rate':0.01,
                             'wd':5e-4}
     self._theta_updater = mx.optimizer.get_updater(
       mx.optimizer.create('adam', **optimizer_params_theta))

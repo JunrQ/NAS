@@ -84,7 +84,8 @@ fbnet = FBNet(batch_size=args.batch_size,
               log_frequence=args.log_frequence,
               save_frequence=args.save_checkpoint_frequence,
               feature_dim=args.feature_dim,
-              model_type=args.model_type)
+              model_type=args.model_type,
+              alpha=0.8)
 
 fbnet.search(train, val, start_w_epochs=10, # lr_decay_step=args.lr_decay_step, 
              result_prefix=args.model_type + '_1080Ti_plus', cosine_decay_step=args.cosine_decay_step)
