@@ -4,6 +4,8 @@ import time
 import logging
 import mxnet as mx
 import numpy as np
+from functools import reduce
+# from mxnet.moduel.executor_group import DataParallelExecutorGroup
 
 from blocks import block_factory, block_factory_test
 from util import sample_gumbel, ce
@@ -18,7 +20,7 @@ class FBNet(object):
                data_name='data',
                label_name='softmax_label',
                logger=logging,
-               ctxs=mx.cpu(),
+               ctxs=[mx.cpu()],
                initializer=mx.initializer.Normal(),
                theta_unique_name='theta_arc',
                batch_end_callback=None,
@@ -27,7 +29,9 @@ class FBNet(object):
                save_frequence=2000,
                eps=1e-10,
                num_examples=200000,
-               theta_init_value=1.0):
+               theta_init_value=1.0,
+               work_load_list=None,
+               kvstore='local'):
     """
     Parameters
     ----------
@@ -40,7 +44,7 @@ class FBNet(object):
     beta : float
       loss aprameters, default is 0.6
     feature_dim : int
-      feature dimensions, default is 192
+ dimensions, default is 192
     model_type : str
       for now, support `softmax`, `amsoftmax`, `arcface`,
       softmax mean original fc
@@ -51,7 +55,7 @@ class FBNet(object):
     label_name : str
       name for label
     logger : 
-    ctxs : 
+    ctxs : list of mx.Context
     initializer : 
     theta_unique_name : str
       used for recognizing $\theta$ parameters
@@ -97,6 +101,8 @@ class FBNet(object):
     self._m_size = []
     self._binded = False
     self._logger = logger
+    if not isinstance(ctxs, list):
+      ctxs = [ctxs]
     self._ctxs = ctxs
     self._init = initializer
     self._data_name = data_name
@@ -115,6 +121,8 @@ class FBNet(object):
     self._model_type = model_type
     self._b = dict()
     self._theta_init_value = theta_init_value
+    # TODO(ZhouJ) use kvstore for updating
+    self._kvstore = kvstore
 
     if isinstance(eval_metric, list):
       eval_metric_list = []
@@ -130,9 +138,15 @@ class FBNet(object):
 
     if isinstance(input_shape, list):
       input_shape = tuple(input_shape)
-    self._input_shapes = {data_name: (self._batch_size, ) + input_shape,
-                          label_name: (self._batch_size, ) if label_shape is None else \
-                                      (self._batch_size, ) + self._label_shape,
+    if work_load_list is None:
+      assert self._batch_size % len(self._ctxs) == 0
+    else:
+      raise NotImplementedError("work load list is not supported for now")
+    len_ctx = len(self._ctxs)
+    self._dev_batch_size = self._batch_size / len_ctx
+    self._input_shapes = {data_name: (self._batch_size / len_ctx, ) + input_shape,
+                          label_name: (self._batch_size / len_ctx, ) if label_shape is None else \
+                                      (self._batch_size / len_ctx, ) + self._label_shape,
                           "temperature": (1, )}
 
     assert model_type in ['softmax', 'amsoftmax', 'arcface']
@@ -159,7 +173,7 @@ class FBNet(object):
     if cosine_decay_step is not None:
       lr_scheduler = mx.lr_scheduler.CosineDecayScheduler(
           first_decay_step=cosine_decay_step,
-          t_mul=2.0, m_mul=0.9, alpha=0.001, base_lr=0.001)
+          t_mul=2.0, m_mul=0.9, alpha=0.0001, base_lr=optimizer_params_w['learning_rate'])
       optimizer_params_w.setdefault("lr_scheduler", lr_scheduler)
     self._w_updater = mx.optimizer.get_updater(
       mx.optimizer.create('sgd', **optimizer_params_w))
@@ -238,7 +252,7 @@ class FBNet(object):
           theta = mx.sym.broadcast_div(mx.sym.elemwise_add(theta_var, gumbel_var), self._temperature)
 
           m = mx.sym.repeat(mx.sym.reshape(mx.sym.softmax(theta), (1, -1)), 
-                            repeats=self._batch_size, axis=0)
+                            repeats=self._dev_batch_size, axis=0)
           self._m.append(m)
           m = mx.sym.reshape(m, (-2, 1, 1, 1))
           # TODO why stack wrong
@@ -319,10 +333,10 @@ class FBNet(object):
       b_l = mx.sym.reshape(b_l, (1, -1))
       if l == 0:
         lat = mx.sym.sum(self._m[l] * mx.sym.repeat(b_l, 
-                                repeats=self._batch_size, axis=0))
+                                repeats=self._dev_batch_size, axis=0))
       else:
         lat = lat + mx.sym.sum(self._m[l] * mx.sym.repeat(b_l, 
-                                repeats=self._batch_size, axis=0))
+                                repeats=self._dev_batch_size, axis=0))
     # loss = ce * self._alpha * (mx.sym.log(lat) ** self._beta)
     loss = ce + self._alpha * (mx.sym.log(lat) ** self._beta)
     self._loss = mx.sym.make_loss(loss)
@@ -345,91 +359,125 @@ class FBNet(object):
         self.grad_req[k] = 'null'
 
     # TODO Dataparaller training
-    self._exe = self._loss.simple_bind(ctx=self._ctxs,
-                      grad_req=self.grad_req,
-                      **self._input_shapes)
-    self._param_arrays = self._exe.arg_arrays
-    self._grad_arrays = self._exe.grad_arrays
-    self._arg_dict = self._exe.arg_dict
-    self._grad_dict = self._exe.grad_dict
+    if len(self._ctxs) == 1:
+      self._exe = self._loss.simple_bind(ctx=self._ctxs,
+                        grad_req=self.grad_req,
+                        **self._input_shapes)
+      self._exe = [self._exe]
+    else:
+      self._exe = []
+      for ctx in self._ctxs:
+        self._exe.append(self._loss.simple_bind(ctx,
+                        grad_req=self.grad_req,
+                        **self._input_shapes))
+
+    self._param_arrays = []
+    self._grad_arrays = []
+    self._arg_dict = []
+    self._grad_dict = []
+
+    for i, exe in enumerate(self._exe):
+      self._param_arrays.append(exe.arg_arrays)
+      self._grad_arrays.append(exe.grad_arrays)
+      self._arg_dict.append(exe.arg_dict)
+      self._grad_dict.append(exe.grad_dict)
 
     # initilize parameters
     # default value for $\theta$ is 1
-    for name, arr in self._arg_dict.items():
+    for name, arr in self._arg_dict[i].items():
       if name not in self._input_shapes:
         # TODO there is a warning
         self._init(name, arr)
       elif self._theta_unique_name in name:
         arr[:] = self._theta_init_value
-
-  def forward_backward(self, data, label, temperature=5.0):
-    self._arg_dict[self._data_name][:] = data
-    if self._model_type != 'softmax':
-      label_index = label
-      self._arg_dict['label_index'][:] = label_index
-    if self._label_shape is not None:
-      label = mx.nd.one_hot(label, self._label_shape[0])
-    self._arg_dict[self._label_name][:] = label
-    if "temperature" in self._arg_dict.keys():
-      self._arg_dict["temperature"][:] = temperature
-
+    
     self._no_update_params_name = set((self._data_name, self._label_name,
-          "temperature"))
+            "temperature"))
     
     for k, v in self._b.items():
-      self._arg_dict[k][:] = v
-      self._no_update_params_name.add(k)
-    
+        self._no_update_params_name.add(k)
+      
     for k in self._gumbel_var_names:
-      if not k[0] in self._arg_dict.keys():
+      if not k[0] in self._arg_dict[i].keys():
         break
-      # TODO use random sample, for now use zeros for test
-      # The  random gumbel sampled may be too big compared
-      # to $\theta$, which may cause unstable and fail to
-      # converge
-      tmp_gumbel = sample_gumbel((k[1], ))
-      self._arg_dict[k[0]][:] = 1.0 * mx.nd.array(tmp_gumbel)
-      # self._arg_dict[k[0]][:] = 1.0 * mx.nd.zeros((k[1]))
       self._no_update_params_name.add(k[0])
 
-    self._exe.forward(is_train=True)
-    self._exe.backward()
+
+  def forward_backward(self, data, label, temperature=5.0):
+    data_slice = []
+    label_slice = []
+    for i in range(len(self._ctxs)):
+      data_slice.append(data[i*self._dev_batch_size:(i+1)*self._dev_batch_size])
+      label_slice.append(label[i*self._dev_batch_size:(i+1)*self._dev_batch_size])
+    
+
+    for i in range(len(self._ctxs)):
+
+      self._arg_dict[i][self._data_name][:] = data_slice[i]
+      if self._model_type != 'softmax':
+        label_index = label_slice[i]
+        self._arg_dict[i]['label_index'][i][:] = label_index
+      label_ = mx.nd.one_hot(label_slice[i], self._label_shape[0])
+      self._arg_dict[i][self._label_name][:] = label_
+      if "temperature" in self._arg_dict[i].keys():
+        self._arg_dict[i]["temperature"][:] = temperature
+
+      for k, v in self._b.items():
+        self._arg_dict[i][k][:] = v
+      
+      for k in self._gumbel_var_names:
+        if not k[0] in self._arg_dict[i].keys():
+          break
+        # TODO use random sample, for now use zeros for test
+        # The  random gumbel sampled may be too big compared
+        # to $\theta$, which may cause unstable and fail to
+        # converge
+        tmp_gumbel = sample_gumbel((k[1], ))
+        self._arg_dict[i][k[0]][:] = 1.0 * mx.nd.array(tmp_gumbel)
+        # self._arg_dict[i][k[0]][:] = 1.0 * mx.nd.zeros((k[1]))
+
+      self._exe[i].forward(is_train=True)
+      self._exe[i].backward()
 
   def update_w_a(self, data, label, temperature=5.0):
     """Update parameters of $w_a$
     """
     self.forward_backward(data, label, temperature)
+    len_ctx = len(self._ctxs)
 
-    for i, pair in enumerate(zip(self._param_arrays, self._grad_arrays)):
+    for i in range(len(self._param_arrays[0])):
       name = self._arg_names[i]
-      weight, grad = pair
-      if (not self._theta_unique_name in name) and \
-         (not name in self._no_update_params_name):
-        self._w_updater(i, grad, weight)
 
-    # for i, pair in enumerate(self._arg_dict.items()):
-    #   name, weight = pair
-    #   if (not self._theta_unique_name in name) and \
-    #      (not name in self._no_update_params_name):
-    #     grad = self._grad_dict[name]
-    #     if name == 'convolution0_weight':
-    #       print(name, weight, grad)
-    #     self._w_updater(i, grad, weight)
-    #   else:
-    #     # print(pair) # check init
-    #     pass
+      if (not self._theta_unique_name in name) and \
+        (not name in self._no_update_params_name):
+
+        for idx in range(len_ctx):
+          weight = self._grad_arrays[idx][i]
+          grad = [tmp[i].as_in_context(weight.context) for tmp in self._grad_arrays]
+          grad = reduce(lambda x, y: x + y, grad)
+          grad = grad / len_ctx
+          self._w_updater(i * len(self._ctxs) + idx, grad, weight)
 
 
   def update_theta(self, data, label, temperature):
     """Update $\theta$.
     """
     self.forward_backward(data, label, temperature)
+    len_ctx = len(self._ctxs)
 
-    for i, pair in enumerate(self._arg_dict.items()):
-      name, weight = pair
+    for i in range(len(self._param_arrays[0])):
+      name = self._arg_names[i]
+
       if self._theta_unique_name in name and \
          (not name in self._no_update_params_name):
-        grad = self._grad_dict[name]
+
+        for idx in range(len_ctx):
+          weight = self._grad_arrays[idx][i]
+          grad = [tmp[i].as_in_context(weight.context) for tmp in self._grad_arrays]
+          grad = reduce(lambda x, y: x + y, grad)
+          grad = grad / len_ctx
+          self._theta_updater(i * len(self._ctxs) + idx, grad, weight)
+
         self._theta_updater(i, grad, weight)
 
   def _train(self, dataset, epochs, updater_func, start_epoch=0):
@@ -470,13 +518,13 @@ class FBNet(object):
           log_toc = time.time()
           speed = 1.0 * n_batches /  (log_toc - log_tic)
           eval_str = ''
-          total_loss = self._exe.outputs[0].asnumpy().sum() / self._batch_size
+          total_loss = [exe.outputs[0].asnumpy().sum() for exe in self._exe]
+          total_loss = reduce(lambda x, y: x + y, total_loss) / self._batch_size
           
           label_ = label_input.asnumpy()
-          if self._label_shape is None:
-            pred_ = self._exe.outputs[0].asnumpy()
-          else:
-            pred_ = self._exe.outputs[1].asnumpy()
+          
+          pred_ = [exe.outputs[1].asnumpy() for exe in self._exe]
+          pred_ = np.concatenate(pred_, axis=0)
           # print(pred_)
 
           loss = ce(label_, pred_) / self._batch_size
