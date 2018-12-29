@@ -18,9 +18,10 @@ python run_mnist.py --batch-size 32 --gpu 1 --log-frequence 50
   * Default input shape is `3,108,108`, so the first conv layer has stride 1 instead of 2.
   * Add `BN` out of blocks, and **no** `bn` inside blocks.
   * Last conv has kernel size `3,3`
+  * Use **+** in loss not **\***.
 
 *TODO*:
   - sample script, for now just save $\theta$
-  - cosine decaying schedule
+  - ~~cosine decaying schedule~~
   - lat in real environment
-  - DataParallel implementation
+  - ~~DataParallel implementation~~

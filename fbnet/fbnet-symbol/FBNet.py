@@ -12,7 +12,7 @@ from util import sample_gumbel, ce
 
 class FBNet(object):
   def __init__(self, batch_size, output_dim,
-               alpha=0.2, beta=0.6,
+               alpha=0.8, beta=0.6,
                feature_dim=192,
                model_type='amsoftmax',
                input_shape=(3, 108, 108),
@@ -157,11 +157,10 @@ class FBNet(object):
   def init_optimizer(self, lr_decay_step=None, cosine_decay_step=None):
     """Init optimizer, define updater.
     """
-    optimizer_params_w = {'learning_rate':0.005,
+    optimizer_params_w = {'learning_rate':0.0002,
                           'momentum':0.9,
                           # 'clip_gradient': 10.0,
                           'wd':1e-4}
-    # TODO for w_a update, origin parper use cosine decaying schedule
     batch_num = self._num_examples / self._batch_size
     self._batch_num = batch_num
     if lr_decay_step is not None:
@@ -262,7 +261,7 @@ class FBNet(object):
           input_channels = num_filter
       
       elif outer_layer_idx == len(self._f) - 1:
-        # last 1x1 conv part# Add a bn layer
+        # last 1x1 conv part
         data = mx.sym.BatchNorm(data=data, fix_gamma=False, eps=2e-5, momentum=0.9)
         data = mx.sym.Activation(data=data, act_type='relu')
         data = mx.sym.Convolution(data, num_filter=num_filter,
@@ -309,10 +308,6 @@ class FBNet(object):
   def define_loss(self):
     self._logger.info("Define loss")
     self._softmax_output = mx.sym.SoftmaxActivation(self._output)
-    # TODO There is an error in softmax_cross_entropy
-    # ce = mx.sym.softmax_cross_entropy(self._output,
-    #                      self._label,
-    #                      name='softmax_output')
     ce = -self._label * mx.sym.log(self._softmax_output + self._eps) - \
       (1.0 - self._label) * mx.sym.log(1.0 - self._softmax_output + self._eps)
     ce = mx.sym.sum(ce)
@@ -322,7 +317,6 @@ class FBNet(object):
       b_l_i = []
       speed_b_tmp = speed_f[l].strip().split(' ')
       for i in range(self._m_size[l]):
-        # b_tmp = 2.0 * (0.9 ** l) * (1.1 ** i)
         b_tmp = float(speed_b_tmp[i])
         b_l_i.append(b_tmp)
       self._b["b_%d" % l] = mx.nd.array(b_l_i)
@@ -358,18 +352,11 @@ class FBNet(object):
       else:
         self.grad_req[k] = 'null'
 
-    # TODO Dataparaller training
-    if len(self._ctxs) == 1:
-      self._exe = self._loss.simple_bind(ctx=self._ctxs,
-                        grad_req=self.grad_req,
-                        **self._input_shapes)
-      self._exe = [self._exe]
-    else:
-      self._exe = []
-      for ctx in self._ctxs:
-        self._exe.append(self._loss.simple_bind(ctx,
-                        grad_req=self.grad_req,
-                        **self._input_shapes))
+    self._exe = []
+    for ctx in self._ctxs:
+      self._exe.append(self._loss.simple_bind(ctx,
+                      grad_req=self.grad_req,
+                      **self._input_shapes))
 
     self._param_arrays = []
     self._grad_arrays = []
@@ -382,26 +369,25 @@ class FBNet(object):
       self._arg_dict.append(exe.arg_dict)
       self._grad_dict.append(exe.grad_dict)
 
-    # initilize parameters
-    # default value for $\theta$ is 1
-    for name, arr in self._arg_dict[i].items():
-      if name not in self._input_shapes:
-        # TODO there is a warning
-        self._init(name, arr)
-      elif self._theta_unique_name in name:
-        arr[:] = self._theta_init_value
+      # initilize parameters
+      # default value for $\theta$ is 1
+      for name, arr in self._arg_dict[i].items():
+        if name not in self._input_shapes:
+          # TODO there is a warning
+          self._init(name, arr)
+        elif self._theta_unique_name in name:
+          arr[:] = self._theta_init_value
     
     self._no_update_params_name = set((self._data_name, self._label_name,
             "temperature"))
     
-    for k, v in self._b.items():
+    for k, _ in self._b.items():
         self._no_update_params_name.add(k)
       
     for k in self._gumbel_var_names:
-      if not k[0] in self._arg_dict[i].keys():
+      if not k[0] in self._arg_dict[0].keys():
         break
       self._no_update_params_name.add(k[0])
-
 
   def forward_backward(self, data, label, temperature=5.0):
     data_slice = []
@@ -410,9 +396,14 @@ class FBNet(object):
       data_slice.append(data[i*self._dev_batch_size:(i+1)*self._dev_batch_size])
       label_slice.append(label[i*self._dev_batch_size:(i+1)*self._dev_batch_size])
     
+    gumbel_list = []
+    for k in self._gumbel_var_names:
+      if not k[0] in self._arg_dict[0].keys():
+        break
+      tmp_gumbel = sample_gumbel((k[1], ))
+      gumbel_list.append(1.0 * mx.nd.array(tmp_gumbel))
 
     for i in range(len(self._ctxs)):
-
       self._arg_dict[i][self._data_name][:] = data_slice[i]
       if self._model_type != 'softmax':
         label_index = label_slice[i]
@@ -425,15 +416,10 @@ class FBNet(object):
       for k, v in self._b.items():
         self._arg_dict[i][k][:] = v
       
-      for k in self._gumbel_var_names:
+      for idx, k in enumerate(self._gumbel_var_names):
         if not k[0] in self._arg_dict[i].keys():
           break
-        # TODO use random sample, for now use zeros for test
-        # The  random gumbel sampled may be too big compared
-        # to $\theta$, which may cause unstable and fail to
-        # converge
-        tmp_gumbel = sample_gumbel((k[1], ))
-        self._arg_dict[i][k[0]][:] = 1.0 * mx.nd.array(tmp_gumbel)
+        self._arg_dict[i][k[0]][:] = gumbel_list[idx]
         # self._arg_dict[i][k[0]][:] = 1.0 * mx.nd.zeros((k[1]))
 
       self._exe[i].forward(is_train=True)
@@ -447,17 +433,17 @@ class FBNet(object):
 
     for i in range(len(self._param_arrays[0])):
       name = self._arg_names[i]
-
       if (not self._theta_unique_name in name) and \
         (not name in self._no_update_params_name):
-
         for idx in range(len_ctx):
-          weight = self._grad_arrays[idx][i]
+          weight = self._param_arrays[idx][i]
           grad = [tmp[i].as_in_context(weight.context) for tmp in self._grad_arrays]
-          grad = reduce(lambda x, y: x + y, grad)
-          grad = grad / len_ctx
+          if len(grad) > 1:
+            grad = reduce(lambda x, y: x + y, grad)
+            grad = grad / len_ctx
+          else:
+            grad = grad[0]
           self._w_updater(i * len(self._ctxs) + idx, grad, weight)
-
 
   def update_theta(self, data, label, temperature):
     """Update $\theta$.
@@ -467,18 +453,17 @@ class FBNet(object):
 
     for i in range(len(self._param_arrays[0])):
       name = self._arg_names[i]
-
       if self._theta_unique_name in name and \
          (not name in self._no_update_params_name):
-
         for idx in range(len_ctx):
-          weight = self._grad_arrays[idx][i]
+          weight = self._param_arrays[idx][i]
           grad = [tmp[i].as_in_context(weight.context) for tmp in self._grad_arrays]
-          grad = reduce(lambda x, y: x + y, grad)
-          grad = grad / len_ctx
+          if len(grad) > 1:
+            grad = reduce(lambda x, y: x + y, grad)
+            grad = grad / len_ctx
+          else:
+            grad = grad[0]
           self._theta_updater(i * len(self._ctxs) + idx, grad, weight)
-
-        self._theta_updater(i, grad, weight)
 
   def _train(self, dataset, epochs, updater_func, start_epoch=0):
     assert isinstance(dataset, mx.io.DataIter)
@@ -491,23 +476,13 @@ class FBNet(object):
       nbatch = 0
       data_iter = iter(dataset)
       next_data_batch = next(data_iter)
-      # data_name = next_data_batch.data[0][0]
-      # assert len(next_data_batch.data) == 1, "Not support more than \
-      #     one input, but got %d inputs" % len(next_data_batch.data)
-      # assert data_name == self._data_name, "Dataset data name %s is \
-      #     different from model data name %s" % (data_name, self._data_name)
-      # label_name = next_data_batch.label[0][0]
-      # assert len(next_data_batch.label) == 1, "Not support more than \
-      #     one label, but got %d labels" % len(next_data_batch.label)
-      # assert label_name == self._label_name, "Dataset label name %s is \
-      #     different from model label name %s" % (label_name, self._label_name)
+
       while not end_of_batch:
         data_batch = next_data_batch
         data_input = data_batch.data[0]
         label_input = data_batch.label[0]
 
         updater_func(data_input, label_input)
-
         try:
           # pre fetch next batch
           next_data_batch = next(data_iter)
