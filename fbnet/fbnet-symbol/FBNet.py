@@ -63,10 +63,10 @@ class FBNet(object):
     """
     self._f = [16, 16, 24, 32, 
                64, 112, 184, 352,
-               1024, 1984]
+               1984]
     self._n = [1, 1, 4, 4,
-               4, 4, 4, 4,
-               4, 1]
+               4, 4, 4, 1,
+               1]
     if input_shape[-1] == 28: # mnist
       self._s = [1, 1, 2, 2,
                 1, 1, 1, 1,
@@ -74,7 +74,7 @@ class FBNet(object):
     else:
       self._s = [1, 1, 2, 2,
                 2, 1, 2, 1,
-                1, 1]
+                1]
     assert len(self._f) == len(self._n) == len(self._s)
     self._e = [1, 1, 3, 6,
                1, 1, 3, 6]
@@ -407,7 +407,7 @@ class FBNet(object):
       self._arg_dict[i][self._data_name][:] = data_slice[i]
       if self._model_type != 'softmax':
         label_index = label_slice[i]
-        self._arg_dict[i]['label_index'][i][:] = label_index
+        self._arg_dict[i]['label_index'][:] = label_index
       label_ = mx.nd.one_hot(label_slice[i], self._label_shape[0])
       self._arg_dict[i][self._label_name][:] = label_
       if "temperature" in self._arg_dict[i].keys():
