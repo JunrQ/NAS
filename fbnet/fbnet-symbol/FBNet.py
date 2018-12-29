@@ -157,7 +157,7 @@ class FBNet(object):
   def init_optimizer(self, lr_decay_step=None, cosine_decay_step=None):
     """Init optimizer, define updater.
     """
-    optimizer_params_w = {'learning_rate':0.0002,
+    optimizer_params_w = {'learning_rate':0.01,
                           'momentum':0.9,
                           # 'clip_gradient': 10.0,
                           'wd':1e-4}
