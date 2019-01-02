@@ -159,8 +159,8 @@ class FBNet(object):
     """
     optimizer_params_w = {'learning_rate':0.01,
                           'momentum':0.9,
-                          # 'clip_gradient': 10.0,
-                          'wd':1e-4}
+                          'clip_gradient': 10.0,
+                          'wd':5e-4}
     batch_num = self._num_examples / self._batch_size
     self._batch_num = batch_num
     if lr_decay_step is not None:
@@ -218,7 +218,7 @@ class FBNet(object):
             block_out = block_factory(data, input_channels=input_channels,
                                 num_filters=num_filter, kernel_size=kernel_size,
                                 prefix=prefix, expansion=expansion,
-                                group=group, shuffle=False,
+                                group=group, shuffle=True,
                                 stride=stride, bn=False)
             # block_out = mx.sym.BatchNorm(data=block_out, fix_gamma=False, eps=2e-5, momentum=0.9)
             if (input_channels == num_filter) and (s_size == 1):
