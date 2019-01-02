@@ -157,7 +157,7 @@ class FBNet(object):
   def init_optimizer(self, lr_decay_step=None, cosine_decay_step=None):
     """Init optimizer, define updater.
     """
-    optimizer_params_w = {'learning_rate':0.005,
+    optimizer_params_w = {'learning_rate':0.001,
                           'momentum':0.9,
                           # 'clip_gradient': 10.0,
                           'wd':1e-4}
@@ -283,7 +283,7 @@ class FBNet(object):
           data=data, num_hidden=self._output_dim)
     elif self._model_type == 'amsoftmax':
       s = 30.0
-      margin = 0.35
+      margin = 0.3
       data = mx.symbol.L2Normalization(data, mode='instance', eps=1e-8) * s
       w = mx.sym.Variable('fc_weight', init=mx.init.Xavier(magnitude=2),
                         shape=(self._output_dim, self._feature_dim), dtype=np.float32)
@@ -561,7 +561,7 @@ class FBNet(object):
     res = []
     name = []
     for t in self._theta_name:
-      nd = self._arg_dict[t]
+      nd = self._arg_dict[0][t]
       res.append(nd.asnumpy().flatten())
       name.append(t)
     
