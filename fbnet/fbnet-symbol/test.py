@@ -4,6 +4,7 @@ import sys
 import logging
 from time import gmtime, strftime
 import time
+
 sys.path.insert(0, '/home/zhouchangqing/mxnet/incubator-mxnet_12_20/python')
 import mxnet as mx
 from FBNet import FBNet
