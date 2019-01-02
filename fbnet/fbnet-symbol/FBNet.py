@@ -157,7 +157,7 @@ class FBNet(object):
   def init_optimizer(self, lr_decay_step=None, cosine_decay_step=None):
     """Init optimizer, define updater.
     """
-    optimizer_params_w = {'learning_rate':0.001,
+    optimizer_params_w = {'learning_rate':0.01,
                           'momentum':0.9,
                           # 'clip_gradient': 10.0,
                           'wd':1e-4}
@@ -437,12 +437,17 @@ class FBNet(object):
         (not name in self._no_update_params_name):
         for idx in range(len_ctx):
           weight = self._param_arrays[idx][i]
-          grad = [tmp[i].as_in_context(weight.context) for tmp in self._grad_arrays]
-          if len(grad) > 1:
-            grad = reduce(lambda x, y: x + y, grad)
-            grad = grad / len_ctx
+          if idx == 0:
+            grad_ = [tmp[i].as_in_context(weight.context) for tmp in self._grad_arrays]
+            if len(grad_) > 1:
+              grad_ = reduce(lambda x, y: x + y, grad_)
+              grad_ = grad_ / len_ctx
+            else:
+              grad_ = grad_[0]
+            grad = grad_
           else:
-            grad = grad[0]
+            grad = grad_.as_in_context(weight.context)
+
           self._w_updater(i * len(self._ctxs) + idx, grad, weight)
 
   def update_theta(self, data, label, temperature):
@@ -457,12 +462,16 @@ class FBNet(object):
          (not name in self._no_update_params_name):
         for idx in range(len_ctx):
           weight = self._param_arrays[idx][i]
-          grad = [tmp[i].as_in_context(weight.context) for tmp in self._grad_arrays]
-          if len(grad) > 1:
-            grad = reduce(lambda x, y: x + y, grad)
-            grad = grad / len_ctx
+          if idx == 0:
+            grad_ = [tmp[i].as_in_context(weight.context) for tmp in self._grad_arrays]
+            if len(grad_) > 1:
+              grad_ = reduce(lambda x, y: x + y, grad_)
+              grad_ = grad_ / len_ctx
+            else:
+              grad_ = grad_[0]
+            grad = grad_
           else:
-            grad = grad[0]
+            grad = grad_.as_in_context(weight.context)
           self._theta_updater(i * len(self._ctxs) + idx, grad, weight)
 
   def _train(self, dataset, epochs, updater_func, start_epoch=0):
