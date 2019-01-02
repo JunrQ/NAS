@@ -159,7 +159,7 @@ class FBNet(object):
     """
     optimizer_params_w = {'learning_rate':0.01,
                           'momentum':0.9,
-                          # 'clip_gradient': 10.0,
+                          'clip_gradient': 10.0,
                           'wd':1e-4}
     batch_num = self._num_examples / self._batch_size
     self._batch_num = batch_num
@@ -218,7 +218,7 @@ class FBNet(object):
             block_out = block_factory(data, input_channels=input_channels,
                                 num_filters=num_filter, kernel_size=kernel_size,
                                 prefix=prefix, expansion=expansion,
-                                group=group, shuffle=False,
+                                group=group, shuffle=True,
                                 stride=stride, bn=False)
             # block_out = mx.sym.BatchNorm(data=block_out, fix_gamma=False, eps=2e-5, momentum=0.9)
             if (input_channels == num_filter) and (s_size == 1):
@@ -283,7 +283,7 @@ class FBNet(object):
           data=data, num_hidden=self._output_dim)
     elif self._model_type == 'amsoftmax':
       s = 30.0
-      margin = 0.35
+      margin = 0.3
       data = mx.symbol.L2Normalization(data, mode='instance', eps=1e-8) * s
       w = mx.sym.Variable('fc_weight', init=mx.init.Xavier(magnitude=2),
                         shape=(self._output_dim, self._feature_dim), dtype=np.float32)
@@ -437,12 +437,17 @@ class FBNet(object):
         (not name in self._no_update_params_name):
         for idx in range(len_ctx):
           weight = self._param_arrays[idx][i]
-          grad = [tmp[i].as_in_context(weight.context) for tmp in self._grad_arrays]
-          if len(grad) > 1:
-            grad = reduce(lambda x, y: x + y, grad)
-            grad = grad / len_ctx
+          if idx == 0:
+            grad_ = [tmp[i].as_in_context(weight.context) for tmp in self._grad_arrays]
+            if len(grad_) > 1:
+              grad_ = reduce(lambda x, y: x + y, grad_)
+              grad_ = grad_ / len_ctx
+            else:
+              grad_ = grad_[0]
+            grad = grad_
           else:
-            grad = grad[0]
+            grad = grad_.as_in_context(weight.context)
+
           self._w_updater(i * len(self._ctxs) + idx, grad, weight)
 
   def update_theta(self, data, label, temperature):
@@ -457,12 +462,16 @@ class FBNet(object):
          (not name in self._no_update_params_name):
         for idx in range(len_ctx):
           weight = self._param_arrays[idx][i]
-          grad = [tmp[i].as_in_context(weight.context) for tmp in self._grad_arrays]
-          if len(grad) > 1:
-            grad = reduce(lambda x, y: x + y, grad)
-            grad = grad / len_ctx
+          if idx == 0:
+            grad_ = [tmp[i].as_in_context(weight.context) for tmp in self._grad_arrays]
+            if len(grad_) > 1:
+              grad_ = reduce(lambda x, y: x + y, grad_)
+              grad_ = grad_ / len_ctx
+            else:
+              grad_ = grad_[0]
+            grad = grad_
           else:
-            grad = grad[0]
+            grad = grad_.as_in_context(weight.context)
           self._theta_updater(i * len(self._ctxs) + idx, grad, weight)
 
   def _train(self, dataset, epochs, updater_func, start_epoch=0):
@@ -561,7 +570,7 @@ class FBNet(object):
     res = []
     name = []
     for t in self._theta_name:
-      nd = self._arg_dict[t]
+      nd = self._arg_dict[0][t]
       res.append(nd.asnumpy().flatten())
       name.append(t)
     
