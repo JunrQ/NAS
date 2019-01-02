@@ -160,7 +160,7 @@ class FBNet(object):
     optimizer_params_w = {'learning_rate':0.01,
                           'momentum':0.9,
                           'clip_gradient': 10.0,
-                          'wd':5e-4}
+                          'wd':1e-4}
     batch_num = self._num_examples / self._batch_size
     self._batch_num = batch_num
     if lr_decay_step is not None:
