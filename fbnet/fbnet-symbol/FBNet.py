@@ -363,6 +363,8 @@ class FBNet(object):
     self._arg_dict = []
     self._grad_dict = []
 
+    init_dict = {}
+
     for i, exe in enumerate(self._exe):
       self._param_arrays.append(exe.arg_arrays)
       self._grad_arrays.append(exe.grad_arrays)
@@ -373,8 +375,12 @@ class FBNet(object):
       # default value for $\theta$ is 1
       for name, arr in self._arg_dict[i].items():
         if name not in self._input_shapes:
-          # TODO there is a warning
-          self._init(name, arr)
+          if name in init_dict:
+            arr[:] = init_dict[name].as_in_context(arr.context)
+          else:
+            # TODO there is a warning
+            self._init(name, arr)
+            init_dict[name] = arr.as_in_context(mx.cpu())
         elif self._theta_unique_name in name:
           arr[:] = self._theta_init_value
     
