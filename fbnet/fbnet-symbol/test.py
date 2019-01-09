@@ -29,6 +29,8 @@ parser.add_argument('--patch-size', type=int, default=1,
                     help='patch size, default is 1')
 parser.add_argument('--gpus', type=str, default='0',
                     help='gpus, default is 0')
+parser.add_argument('--load-model-path', type=str, default=None,
+                    help='re_train, default is None')
 parser.set_defaults(
   # num_classes=2000,
   # num_examples=107588,
@@ -53,6 +55,7 @@ parser.set_defaults(
   isgray=False,
   lr_decay_step=[15, 35, 60, 95],
   cosine_decay_step=2000,
+  save_model_path = './model'
 )
 args = parser.parse_args()
 train_w_ds = get_train_ds(args)
@@ -78,7 +81,7 @@ train, val = train_w_ds, train_theta_ds
 fbnet = FBNet(batch_size=args.batch_size,
               output_dim=args.num_classes,
               label_shape=(args.num_classes, ),
-              alpha=0.2,
+              alpha=0.2,beta=0.8,
               logger=_logger,
               input_shape=[int(i) for i in args.image_shape.split(',')],
               ctxs=[mx.gpu(int(i)) for i in args.gpus.strip().split(',')],
@@ -88,7 +91,9 @@ fbnet = FBNet(batch_size=args.batch_size,
               save_frequence=args.save_checkpoint_frequence,
               feature_dim=args.feature_dim,
               model_type=args.model_type,
-              alpha=0.8)
+              load_model_path = args.load_model_path,
+              save_model_path = args.save_model_path
+              )
 
-fbnet.search(train, val, start_w_epochs=5, # lr_decay_step=args.lr_decay_step, 
+fbnet.search(train, val, start_w_epochs=5, # lr_decay_step=args.lr_decay_step,
              result_prefix=args.model_type + '_1080Ti_plus_8w', cosine_decay_step=args.cosine_decay_step)

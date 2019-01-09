@@ -8,6 +8,14 @@ import logging
 import sys
 import os
 import mxnet as mx
+from mxnet.lr_scheduler import LRScheduler
+import math
+import argparse
+logging.basicConfig(level=logging.DEBUG)
+import gzip, struct
+import errno
+import subprocess
+
 def softmax(x):
     """Compute softmax values for each sets of scores in x."""
     assert x.ndim == 2
@@ -112,16 +120,6 @@ def sample_gumbel(shape):
     return inv_gumbel_cdf(p)
 
 
-import os
-import argparse
-import logging
-logging.basicConfig(level=logging.DEBUG)
-import mxnet as mx
-import numpy as np
-import gzip, struct
-import errno
-import subprocess
-
 def download_file(url, local_fname=None, force_write=False):
     # requests is not default installed
     import requests
@@ -188,6 +186,58 @@ def ce(label, pred):
     prob = pred[np.arange(label.shape[0]), np.int64(label)]
     return -np.log(prob + 1e-9).sum()
 
+class CosineDecayScheduler_Grad(LRScheduler):
+    """ Cosine Decay Scheduler.
+    (ZhouJ)
+
+    Parameters
+    ----------
+       base_lr: float, base learning rate
+       first_decay_step: int, decay steps, T_0
+       t_mul: float
+       m_mul: float
+       alpha: float, lr_min / lr_max
+       rise_region, (lr_max - lr_min) / rise_region
+    """
+    def __init__(self, first_decay_step, t_mul=2.0, m_mul=0.5, alpha=0.001, base_lr=0.01,rise_region=100):
+        super(CosineDecayScheduler_Grad, self).__init__(base_lr)
+        assert isinstance(first_decay_step, int)
+        if first_decay_step < 1:
+            raise ValueError("decay_step must be strictly positive")
+        self.last_restart_step = 0
+        self.T_0 = first_decay_step
+        self.t_mul = t_mul
+        self.m_mul = m_mul
+        self.init_lr = base_lr
+        self.alpha = alpha
+        self.rise_region = rise_region
+        self.mini_lr = self.init_lr *self.alpha
+        self.rise_grad = (self.init_lr - self.mini_lr) / self.rise_region
+        self.first_flag = True
+
+    def __call__(self, num_update):
+        T_cur = num_update - self.last_restart_step
+        assert T_cur >= 0
+        if T_cur >= self.T_0:
+            # restart
+            self.last_restart_step = num_update
+            self.init_lr *= self.m_mul
+            self.base_lr = self.init_lr
+            self.mini_lr = self.init_lr * self.alpha
+            self.rise_grad = (self.init_lr - self.mini_lr) / self.rise_region
+	        #logging.info("Update[%d]: Change learning rate to %f rise_grad is %f",num_update,self.base_lr,self.rise_grad)
+            self.T_0 = int(self.T_0 * self.t_mul)
+            self.first_flag = False
+        else:
+            if T_cur <= self.rise_region and self.first_flag == False:
+                self.base_lr = self.mini_lr+self.rise_grad * T_cur
+            else:
+                cosine_decay = 0.5 * (1 + math.cos(math.pi * T_cur / (self.T_0 - self.rise_region) ))
+                decayed = (1 - self.alpha) * cosine_decay + self.alpha
+                self.base_lr = self.init_lr * decayed
+
+        return self.base_lr
+
 # Cosine Decay scheduler
 # class CosineDecayScheduler(LRScheduler):
 #     """ Cosine Decay Scheduler.
@@ -228,3 +278,5 @@ def ce(label, pred):
 #             decayed = (1 - self.alpha) * cosine_decay + self.alpha
 #             self.base_lr = self.init_lr * decayed
 #         return self.base_lr
+
+
