@@ -569,8 +569,8 @@ class FBNet(object):
           json_name = os.path.join(self._save_model_path,'checkpoint-{}-symbol.json').format(self._model_type)
           self._loss.save(json_name)
 
-          save_dict = {('arg:%s' % k): v for k, v in self._exe.arg_dict.items()}
-          save_dict.update({('aux:%s' % k): v for k, v in self._exe.aux_dict.items()})
+          save_dict = {('arg:%s' % k): v for k, v in self._exe[0].arg_dict.items()}
+          save_dict.update({('aux:%s' % k): v for k, v in self._exe[0].aux_dict.items()})
 
           # tempe = mx.nd.array([self._temperature])
           # save_dict.update({'temperature:': tempe})
