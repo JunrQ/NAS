@@ -7,12 +7,12 @@ import numpy as np
 from functools import reduce
 import os
 # from mxnet.moduel.executor_group import DataParallelExecutorGroup
-
+from blocks_se import block_factory_se
 from blocks import block_factory, block_factory_test
 from util import sample_gumbel, ce
 import glob
 
-class FBNet(object):
+class FBNet_SE(object):
   def __init__(self, batch_size, output_dim,
                alpha=0.2, beta=0.6,
                feature_dim=192,
@@ -65,30 +65,20 @@ class FBNet(object):
       used for recognizing $\theta$ parameters
     
     """
-    self._f = [16, 16, 24, 32, 
-               64, 112, 184, 352,
-               1984]
-    self._n = [1, 1, 4, 4,
-               4, 4, 4, 1,
-               1]
-    if input_shape[-1] == 28: # mnist
-      self._s = [1, 1, 2, 2,
-                1, 1, 1, 1,
-                1]
-    else:
-      self._s = [1, 1, 2, 2,
-                2, 1, 2, 1,
-                1]
-    assert len(self._f) == len(self._n) == len(self._s)
-    self._e = [1, 1, 3, 6,
-               1, 1, 3, 6]
+    self._unistage = 4
+
+    self._n = [3,1,1,1]
+    self._f = [64, 256,512, 1024, 2048]
+
+    self._se = [0, 1, 0, 1,
+                 0, 1, 0, 1]
     self._kernel = [3, 3, 3, 3,
-                    5, 5, 5, 5]
-    self._group = [1, 2, 1, 1,
-                   1, 2, 1, 1]
-    assert len(self._e) == len(self._kernel) == len(self._group)
-    self._block_size = len(self._e) + 1 # skip
-    self._tbs = [1, 7] # include layer 7
+                    3, 3, 3, 3]
+    self._group = [1, 1, 2, 2,
+                   1, 1, 2, 2]
+
+    self._block_size = len(self._group)
+
     self._theta_vars = []
     self._batch_size = batch_size
     self._save_frequence = save_frequence
@@ -221,7 +211,7 @@ class FBNet(object):
             expansion = self._e[block_idx]
             stride = (s_size, s_size)
 
-            block_out = block_factory(data, input_channels=input_channels,
+            block_out = block_factory_se(data, input_channels=input_channels,
                                 num_filters=num_filter, kernel_size=kernel_size,
                                 prefix=prefix, expansion=expansion,
                                 group=group, shuffle=True,
@@ -232,7 +222,7 @@ class FBNet(object):
             block_out = mx.sym.expand_dims(block_out, axis=1)
             block_list.append(block_out)
           # theta parameters, gumbel
-          tmp_name = "layer_%d_%d_%s" % (outer_layer_idx, inner_layer_idx, 
+          tmp_name = "layer_%d_%d_%s" % (outer_layer_idx, inner_layer_idx,
                                        self._theta_unique_name)
           tmp_gumbel_name = "layer_%d_%d_%s" % (outer_layer_idx, inner_layer_idx, "gumbel_random")
           self._theta_name.append(tmp_name)
@@ -249,14 +239,14 @@ class FBNet(object):
             self._m_size.append(self._block_size - 1)
             self._input_shapes[tmp_name] = (self._block_size - 1, )
             self._input_shapes[tmp_gumbel_name] = (self._block_size - 1, )
-            
+
           self._theta_vars.append(theta_var)
           self._gumbel_vars.append(gumbel_var)
           self._gumbel_var_names.append([tmp_gumbel_name, self._m_size[-1]])
 
           theta = mx.sym.broadcast_div(mx.sym.elemwise_add(theta_var, gumbel_var), self._temperature)
 
-          m = mx.sym.repeat(mx.sym.reshape(mx.sym.softmax(theta), (1, -1)), 
+          m = mx.sym.repeat(mx.sym.reshape(mx.sym.softmax(theta), (1, -1)),
                             repeats=self._dev_batch_size, axis=0)
           self._m.append(m)
           m = mx.sym.reshape(m, (-2, 1, 1, 1))
@@ -265,7 +255,7 @@ class FBNet(object):
           data = mx.sym.broadcast_mul(data, m)
           data = mx.sym.sum(data, axis=1)
           input_channels = num_filter
-      
+
       elif outer_layer_idx == len(self._f) - 1:
         # last 1x1 conv part
         data = mx.sym.BatchNorm(data=data, fix_gamma=False, eps=2e-5, momentum=0.9)
@@ -276,16 +266,16 @@ class FBNet(object):
                                   name="layer_%d_last_conv" % outer_layer_idx)
       else:
         raise ValueError("Wrong layer index %d" % outer_layer_idx)
-    
+
     # avg pool part
-    data = mx.symbol.Pooling(data=data, global_pool=True, 
+    data = mx.symbol.Pooling(data=data, global_pool=True,
         kernel=(7, 7), pool_type='avg', name="global_pool")
-  
+
     data = mx.symbol.Flatten(data=data, name='flat_pool')
     data = mx.symbol.FullyConnected(data=data, num_hidden=self._feature_dim)
     # fc part
     if self._model_type == 'softmax':
-      data = mx.symbol.FullyConnected(name="output_fc", 
+      data = mx.symbol.FullyConnected(name="output_fc",
           data=data, num_hidden=self._output_dim)
     elif self._model_type == 'amsoftmax':
       s = 30.0
@@ -310,7 +300,115 @@ class FBNet(object):
                                 verbose=False, margin=margin, s=s,
                                 label=self._label_index)
     self._output = data
-  
+
+  def _build_Se(self):
+    """Build symbol.
+    """
+    self._logger.info("Build symbol")
+    data = self._data
+
+    data = mx.sym.BatchNorm(data=data, fix_gamma=False, eps=2e-5, momentum=0.9, name='bn0')
+    data = mx.sym.Convolution(data=data, num_filter=self._f[0], kernel=(7, 7), stride=(2, 2), pad=(3, 3),
+                              no_bias=True, name="conv0")
+    data = mx.sym.BatchNorm(data=data, fix_gamma=False, eps=2e-5, momentum=0.9, name='bn1')
+    data = mx.sym.Activation(data=data, act_type='relu', name='relu0')
+    data = mx.symbol.Pooling(data=data, kernel=(3, 3), stride=(2, 2), pad=(1, 1), pool_type='max')
+
+    for b_index in range(self._unistage):
+
+      num_layers = self._n[b_index]
+      num_filter = self._f[b_index+ 1]
+
+      for l_index in range(num_layers):
+        tmp_name = "layer_%d_%d_%s" % (b_index, l_index,self._theta_unique_name)
+        tmp_gumbel_name = "layer_%d_%d_%s" % (b_index, l_index, "gumbel_random")
+        self._theta_name.append(tmp_name)
+
+        if l_index == 0:
+          stride =2
+        else:
+          stride =1
+
+        block_list = []
+        for i_index in range(self._block_size):
+          type = 'bottle_neck' if i_index <=3 else 'resnet'
+
+          prefix = "layer_%d_%d_block_%d" % (b_index, l_index, i_index)
+
+          group = self._group[l_index]
+          kernel_size = self._kernel[l_index]
+          se = self._se[l_index]
+
+          block_out = block_factory_se(input_symbol = data,name= prefix,num_filter=num_filter,group=group,stride=stride,
+                                       se= se,k_size=  kernel_size,type = type)
+
+          block_out = mx.sym.expand_dims(block_out, axis=1)
+          block_list.append(block_out)
+
+        if b_index>=3 and l_index>=1:  # skip part
+          theta_var = mx.sym.var(tmp_name, shape=(self._block_size + 1,))
+          gumbel_var = mx.sym.var(tmp_gumbel_name, shape=(self._block_size + 1,))
+          self._input_shapes[tmp_name] = (self._block_size + 1,)
+          self._input_shapes[tmp_gumbel_name] = (self._block_size + 1,)
+          # TODO
+          block_list.append(mx.sym.expand_dims(data, axis=1))
+          self._m_size.append(self._block_size+1)
+        else:
+          theta_var = mx.sym.var(tmp_name, shape=(self._block_size,))
+          gumbel_var = mx.sym.var(tmp_gumbel_name, shape=(self._block_size,))
+          self._m_size.append(self._block_size )
+          self._input_shapes[tmp_name] = (self._block_size ,)
+          self._input_shapes[tmp_gumbel_name] = (self._block_size ,)
+
+        self._theta_vars.append(theta_var)
+        self._gumbel_vars.append(gumbel_var)
+        self._gumbel_var_names.append([tmp_gumbel_name, self._m_size[-1]])
+
+        theta = mx.sym.broadcast_div(mx.sym.elemwise_add(theta_var, gumbel_var), self._temperature)
+
+        m = mx.sym.repeat(mx.sym.reshape(mx.sym.softmax(theta), (1, -1)),
+                          repeats=self._dev_batch_size, axis=0)
+        self._m.append(m)
+        m = mx.sym.reshape(m, (-2, 1, 1, 1))
+        # TODO why stack wrong
+        data = mx.sym.concat(*block_list, dim=1, name="layer_%d_%d_concat" % (b_index, l_index))
+        data = mx.sym.broadcast_mul(data, m)
+        data = mx.sym.sum(data, axis=1)
+
+    # avg pool part
+    data = mx.symbol.Pooling(data=data, global_pool=True,
+                             kernel=(7, 7), pool_type='avg', name="global_pool")
+
+    data = mx.symbol.Flatten(data=data, name='flat_pool')
+    data = mx.symbol.FullyConnected(data=data, num_hidden=self._feature_dim)
+    # fc part
+    if self._model_type == 'softmax':
+      data = mx.symbol.FullyConnected(name="output_fc",
+                                      data=data, num_hidden=self._output_dim)
+    elif self._model_type == 'amsoftmax':
+      s = 30.0
+      margin = 0.3
+      data = mx.symbol.L2Normalization(data, mode='instance', eps=1e-8) * s
+      w = mx.sym.Variable('fc_weight', init=mx.init.Xavier(magnitude=2),
+                          shape=(self._output_dim, self._feature_dim), dtype=np.float32)
+      norm_w = mx.symbol.L2Normalization(w, mode='instance', eps=1e-8)
+      data = mx.symbol.AmSoftmax(data, weight=norm_w, num_hidden=self._output_dim,
+                                 lower_class_idx=0, upper_class_idx=self._output_dim,
+                                 verbose=False, margin=margin, s=s,
+                                 label=self._label_index)
+    elif self._model_type == 'arcface':
+      s = 64.0
+      margin = 0.5
+      data = mx.symbol.L2Normalization(data, mode='instance', eps=1e-8) * s
+      w = mx.sym.Variable('fc_weight', init=mx.init.Xavier(magnitude=2),
+                          shape=(self._output_dim, self._feature_dim), dtype=np.float32)
+      norm_w = mx.symbol.L2Normalization(w, mode='instance', eps=1e-8)
+      data = mx.symbol.Arcface(data, weight=norm_w, num_hidden=self._output_dim,
+                               lower_class_idx=0, upper_class_idx=self._output_dim,
+                               verbose=False, margin=margin, s=s,
+                               label=self._label_index)
+    self._output = data
+
   def define_loss(self):
     self._logger.info("Define loss")
     self._softmax_output = mx.sym.SoftmaxActivation(self._output)
@@ -323,7 +421,8 @@ class FBNet(object):
       b_l_i = []
       speed_b_tmp = speed_f[l].strip().split(' ')
       for i in range(self._m_size[l]):
-        b_tmp = float(speed_b_tmp[i])
+        b_tmp = 2.0 * (0.9 ** l) * (1.1 ** i)
+        #b_tmp = float(speed_b_tmp[i])
         b_l_i.append(b_tmp)
       self._b["b_%d" % l] = mx.nd.array(b_l_i)
       self._input_shapes["b_%d" % l] = (self._m_size[l], )
@@ -680,7 +779,7 @@ class FBNet(object):
     """
     if len(result_prefix) > 0:
       result_prefix += '_'
-    self._build()
+    self._build_Se()
     self.define_loss()
 
     start_epoch = self.bind_exe()
