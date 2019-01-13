@@ -393,6 +393,7 @@ class FBNet(object):
               init_dict[name] = arr.as_in_context(mx.cpu())
           elif self._theta_unique_name in name:
             arr[:] = self._theta_init_value
+        self._logger.info("Success init_params for biuild exe")
       else:
 
         arg_params, aux_params, start_epoch = self.load_model()
@@ -409,7 +410,7 @@ class FBNet(object):
 
     self._no_update_params_name = set((self._data_name, self._label_name,
             "temperature"))
-    
+
     for k, _ in self._b.items():
         self._no_update_params_name.add(k)
       
@@ -645,14 +646,16 @@ class FBNet(object):
 
       if '.params' in self._load_model_path:
         load_param_dict = mx.nd.load(self._load_model_path)
+        model_file = self._load_model_path
         epoch = self._load_model_path.split('_')[-2]
       else:
         model_list = glob.glob(self._load_model_path+'/*.params')
         model_list.sort()
+        model_file = model_list[-1]
         epoch = model_list[-1].split('_')[-2]
         load_param_dict = mx.nd.load(model_list[-1])
 
-      self._logger.info("load_model: %s  epoch[%s]"%(model_list[-1],epoch))
+      self._logger.info("load_model: %s  epoch[%s]"%(model_file,epoch))
       arg_params = {}
       aux_params = {}
       for k,v in load_param_dict.items():
