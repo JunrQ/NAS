@@ -55,6 +55,7 @@ parser.set_defaults(
   isgray=False,
   lr_decay_step=[15, 35, 60, 95],
   cosine_decay_step=2000,
+  save_model_path = './model'
 )
 args = parser.parse_args()
 train_w_ds = get_train_ds(args)
@@ -90,7 +91,12 @@ fbnet = FBNet(batch_size=args.batch_size,
               save_frequence=args.save_checkpoint_frequence,
               feature_dim=args.feature_dim,
               model_type=args.model_type,
+<<<<<<< HEAD
               load_model_path = args.load_model_path
+=======
+              load_model_path = args.load_model_path,
+              save_model_path = args.save_model_path
+>>>>>>> 9fff5b385e2f469aab619804efb683d8ac81990e
               )
 
 fbnet.search(train, val, start_w_epochs=5, # lr_decay_step=args.lr_decay_step,

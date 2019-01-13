@@ -405,7 +405,7 @@ class FBNet(object):
           if name not in self._input_shapes:
             self._aux_dict[i][name][:] = aux_params[name]
 
-        self._logger.info("Success load_model for biuildexe")
+        self._logger.info("Success load_model for biuild exe")
 
     self._no_update_params_name = set((self._data_name, self._label_name,
             "temperature"))
@@ -662,7 +662,7 @@ class FBNet(object):
         elif arg_type == 'aux':
             aux_params[name] = v
         else:
-          logging.info("Not found param_type %s" %k)
+          self._logger.info("Not found param_type %s" %k)
 
     return arg_params,aux_params,epoch
 
