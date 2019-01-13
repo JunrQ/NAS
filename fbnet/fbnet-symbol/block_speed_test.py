@@ -13,6 +13,7 @@ import argparse
 import time
 
 from blocks import block_factory
+from blocks_se import block_factory_se
 
 times = 5000
 _e = [1, 1, 3, 6,
@@ -78,6 +79,84 @@ def speed_test(input_shape, s_size, num_filter, ctx = mx.gpu(0)):
   print(' '.join([str(t) for t in speed_list]))
 
 
+_unistage = 4
+
+_n = [3, 1, 1, 2]
+_f = [64, 256, 512, 1024, 2048]
+
+_se = [0, 1, 0, 1,
+       0, 1, 0, 1]
+_k = [3, 3, 3, 3,
+      3, 3, 3, 3]
+_g = [1, 1, 2, 2,
+      1, 1, 2, 2]
+
+def speed_test_se(input_shape, s_size, num_filter, dim_match = False,shape= False,ctx = mx.gpu(1)):
+
+  data = mx.sym.var('data')
+  block_list = []
+  group_list = []
+  se_list = []
+
+  for block_idx in range(len(_g)):
+    kernel_size = _k[block_idx]
+
+    group = _g[block_idx]
+    se = _se[block_idx]
+    stride = s_size
+
+    prefix = "block_%d" % block_idx
+    type = 'bottle_neck' if block_idx<=3 else 'resnet'
+    dim_match = False if block_idx==0 else True
+
+    block_out = block_factory_se(input_symbol=data, name=prefix, num_filter=num_filter, group=group, stride=stride,
+                                 se=se, k_size=kernel_size, type=type,dim_match=dim_match)
+
+
+    block_out = mx.sym.expand_dims(block_out, axis=1)
+    block_list.append(block_out)
+    group_list.append(group)
+    se_list.append(se)
+
+  if shape:  # skip part
+    prefix = "block_deformable_2"
+    block_out = block_factory_se(input_symbol=data, name=prefix, num_filter=num_filter, group=1,
+                                 stride=1,se=0, k_size=3, type='shape',dim_match=dim_match)
+
+    block_out = mx.sym.expand_dims(block_out, axis=1)
+    block_list.append(block_out)
+    group_list.append(prefix)
+    se_list.append("se")
+  speed_list= []
+  for i, sym in enumerate(block_list):
+
+    mod = mx.mod.Module(symbol=sym, context=[ctx], data_names=['data'], label_names=None)
+    mod.bind(data_shapes=[['data', (1, ) + input_shape]], for_training=False)
+    mod.init_params(initializer=mx.init.Xavier(rnd_type='gaussian', factor_type="out", magnitude=2),
+                      allow_missing=True, allow_extra=True)
+
+    data = mx.nd.random.normal(shape=(1, ) + input_shape, ctx=ctx)
+    _dataiter = mx.io.NDArrayIter(data={'data': data},
+                                  batch_size=1)
+    tmp_data = _dataiter.next()
+    mod.forward(tmp_data)
+    mod.get_outputs()[0].asnumpy()
+    # tic
+    start = time.time()
+    for _ in range(times):
+      mod.forward(tmp_data)
+      y = mod.get_outputs()
+      y[0].asnumpy()
+    # toe
+    end = time.time()
+    speed = 1.0 * (end - start) / times * 1000
+    speed_list.append(speed)
+    msg = "Block[%d] group %s se %s  speed %f" % (i,group_list[i],se_list[i], speed)
+    print(msg)
+  print(' '.join([str(t) for t in speed_list]))
+
+
+
 if __name__ == '__main__':
   # speed_test((16, 108, 108), 1, 16)
   # speed_test((16, 108, 108), 2, 24)
@@ -89,5 +168,9 @@ if __name__ == '__main__':
   # speed_test((64, 14, 14), 1, 112)
   # speed_test((112, 14, 14), 1, 112) # 3 layer
   # speed_test((112, 14, 14), 2, 184)
-  # speed_test((184, 7, 7), 1, 184) # 3 layer
-  speed_test((184, 7, 7), 1, 352)
+  # speed_test((184, 7, 7), 1, 184) # 3 layertrue
+  #speed_test((184, 7, 7), 1, 352)
+  
+  #speed_test_se((16, 108, 108),1, 256,shape = True)
+  speed_test_se((256, 54, 54),1, 512,shape = True)
+  #speed_test_se((256, 54, 54),2, 512,dim_match = False,shape = True)

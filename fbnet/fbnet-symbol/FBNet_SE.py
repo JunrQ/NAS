@@ -9,7 +9,7 @@ import os
 # from mxnet.moduel.executor_group import DataParallelExecutorGroup
 from blocks_se import block_factory_se
 from blocks import block_factory, block_factory_test
-from util import sample_gumbel, ce
+from util import sample_gumbel, ce, CosineDecayScheduler_Grad
 import glob
 
 class FBNet_SE(object):
@@ -28,7 +28,7 @@ class FBNet_SE(object):
                batch_end_callback=None,
                eval_metric=None,
                log_frequence=50,
-               save_frequence=2000,
+               save_frequence=5000,
                eps=1e-10,
                num_examples=200000,
                theta_init_value=1.0,
@@ -67,7 +67,7 @@ class FBNet_SE(object):
     """
     self._unistage = 4
 
-    self._n = [3,1,1,1]
+    self._n = [3,1,1,2]
     self._f = [64, 256,512, 1024, 2048]
 
     self._se = [0, 1, 0, 1,
@@ -166,9 +166,14 @@ class FBNet_SE(object):
           factor=0.5)
       optimizer_params_w.setdefault("lr_scheduler", lr_scheduler)
     if cosine_decay_step is not None:
-      lr_scheduler = mx.lr_scheduler.CosineDecayScheduler(
-          first_decay_step=cosine_decay_step,
-          t_mul=2.0, m_mul=0.9, alpha=0.0001, base_lr=optimizer_params_w['learning_rate'])
+
+      lr_scheduler = CosineDecayScheduler_Grad(
+        first_decay_step=cosine_decay_step,
+        t_mul=2.0, m_mul=0.9, alpha=0.0001, base_lr=optimizer_params_w['learning_rate'])
+
+      # lr_scheduler = mx.lr_scheduler.CosineDecayScheduler(
+      #     first_decay_step=cosine_decay_step,
+      #     t_mul=2.0, m_mul=0.9, alpha=0.0001, base_lr=optimizer_params_w['learning_rate'])
       optimizer_params_w.setdefault("lr_scheduler", lr_scheduler)
     self._w_updater = mx.optimizer.get_updater(
       mx.optimizer.create('sgd', **optimizer_params_w))
@@ -177,129 +182,6 @@ class FBNet_SE(object):
                             'wd':5e-4}
     self._theta_updater = mx.optimizer.get_updater(
       mx.optimizer.create('adam', **optimizer_params_theta))
-  
-  def _build(self):
-    """Build symbol.
-    """
-    self._logger.info("Build symbol")
-    data = self._data
-    for outer_layer_idx in range(len(self._f)):
-      num_filter = self._f[outer_layer_idx]
-      num_layers = self._n[outer_layer_idx]
-      s_size = self._s[outer_layer_idx]
-
-      if outer_layer_idx == 0:
-        data = mx.sym.Convolution(data=data, num_filter=num_filter,
-                  kernel=(3, 3), stride=(s_size, s_size), pad=(1, 1))
-        # data = mx.sym.BatchNorm(data=data, fix_gamma=False, eps=2e-5, momentum=0.9)
-        data = mx.sym.Activation(data=data, act_type='relu')
-        input_channels = num_filter
-      elif (outer_layer_idx <= self._tbs[1]) and (outer_layer_idx >= self._tbs[0]):
-        for inner_layer_idx in range(num_layers):
-          data = mx.sym.BatchNorm(data=data, fix_gamma=False, eps=2e-5, momentum=0.9)
-          if inner_layer_idx == 0:
-            s_size = s_size
-          else:
-            s_size = 1
-          # tbs part
-          block_list= []
-
-          for block_idx in range(self._block_size - 1):
-            kernel_size = (self._kernel[block_idx], self._kernel[block_idx])
-            group = self._group[block_idx]
-            prefix = "layer_%d_%d_block_%d" % (outer_layer_idx, inner_layer_idx, block_idx)
-            expansion = self._e[block_idx]
-            stride = (s_size, s_size)
-
-            block_out = block_factory_se(data, input_channels=input_channels,
-                                num_filters=num_filter, kernel_size=kernel_size,
-                                prefix=prefix, expansion=expansion,
-                                group=group, shuffle=True,
-                                stride=stride, bn=False)
-            # block_out = mx.sym.BatchNorm(data=block_out, fix_gamma=False, eps=2e-5, momentum=0.9)
-            if (input_channels == num_filter) and (s_size == 1):
-              block_out = block_out + data
-            block_out = mx.sym.expand_dims(block_out, axis=1)
-            block_list.append(block_out)
-          # theta parameters, gumbel
-          tmp_name = "layer_%d_%d_%s" % (outer_layer_idx, inner_layer_idx,
-                                       self._theta_unique_name)
-          tmp_gumbel_name = "layer_%d_%d_%s" % (outer_layer_idx, inner_layer_idx, "gumbel_random")
-          self._theta_name.append(tmp_name)
-          if inner_layer_idx >= 1: # skip part
-            theta_var = mx.sym.var(tmp_name, shape=(self._block_size, ))
-            gumbel_var = mx.sym.var(tmp_gumbel_name, shape=(self._block_size, ))
-            self._input_shapes[tmp_name] = (self._block_size, )
-            self._input_shapes[tmp_gumbel_name] = (self._block_size, )
-            block_list.append(mx.sym.expand_dims(data, axis=1))
-            self._m_size.append(self._block_size)
-          else:
-            theta_var = mx.sym.var(tmp_name, shape=(self._block_size - 1, ))
-            gumbel_var = mx.sym.var(tmp_gumbel_name, shape=(self._block_size - 1, ))
-            self._m_size.append(self._block_size - 1)
-            self._input_shapes[tmp_name] = (self._block_size - 1, )
-            self._input_shapes[tmp_gumbel_name] = (self._block_size - 1, )
-
-          self._theta_vars.append(theta_var)
-          self._gumbel_vars.append(gumbel_var)
-          self._gumbel_var_names.append([tmp_gumbel_name, self._m_size[-1]])
-
-          theta = mx.sym.broadcast_div(mx.sym.elemwise_add(theta_var, gumbel_var), self._temperature)
-
-          m = mx.sym.repeat(mx.sym.reshape(mx.sym.softmax(theta), (1, -1)),
-                            repeats=self._dev_batch_size, axis=0)
-          self._m.append(m)
-          m = mx.sym.reshape(m, (-2, 1, 1, 1))
-          # TODO why stack wrong
-          data = mx.sym.concat(*block_list, dim=1, name="layer_%d_%d_concat" % (outer_layer_idx, inner_layer_idx))
-          data = mx.sym.broadcast_mul(data, m)
-          data = mx.sym.sum(data, axis=1)
-          input_channels = num_filter
-
-      elif outer_layer_idx == len(self._f) - 1:
-        # last 1x1 conv part
-        data = mx.sym.BatchNorm(data=data, fix_gamma=False, eps=2e-5, momentum=0.9)
-        data = mx.sym.Activation(data=data, act_type='relu')
-        data = mx.sym.Convolution(data, num_filter=num_filter,
-                                  stride=(s_size, s_size),
-                                  kernel=(3, 3),
-                                  name="layer_%d_last_conv" % outer_layer_idx)
-      else:
-        raise ValueError("Wrong layer index %d" % outer_layer_idx)
-
-    # avg pool part
-    data = mx.symbol.Pooling(data=data, global_pool=True,
-        kernel=(7, 7), pool_type='avg', name="global_pool")
-
-    data = mx.symbol.Flatten(data=data, name='flat_pool')
-    data = mx.symbol.FullyConnected(data=data, num_hidden=self._feature_dim)
-    # fc part
-    if self._model_type == 'softmax':
-      data = mx.symbol.FullyConnected(name="output_fc",
-          data=data, num_hidden=self._output_dim)
-    elif self._model_type == 'amsoftmax':
-      s = 30.0
-      margin = 0.3
-      data = mx.symbol.L2Normalization(data, mode='instance', eps=1e-8) * s
-      w = mx.sym.Variable('fc_weight', init=mx.init.Xavier(magnitude=2),
-                        shape=(self._output_dim, self._feature_dim), dtype=np.float32)
-      norm_w = mx.symbol.L2Normalization(w, mode='instance', eps=1e-8)
-      data = mx.symbol.AmSoftmax(data, weight=norm_w, num_hidden=self._output_dim,
-                                lower_class_idx=0, upper_class_idx=self._output_dim,
-                                verbose=False, margin=margin, s=s,
-                                label=self._label_index)
-    elif self._model_type == 'arcface':
-      s = 64.0
-      margin = 0.5
-      data = mx.symbol.L2Normalization(data, mode='instance', eps=1e-8) * s
-      w = mx.sym.Variable('fc_weight', init=mx.init.Xavier(magnitude=2),
-                        shape=(self._output_dim, self._feature_dim), dtype=np.float32)
-      norm_w = mx.symbol.L2Normalization(w, mode='instance', eps=1e-8)
-      data = mx.symbol.Arcface(data, weight=norm_w, num_hidden=self._output_dim,
-                                lower_class_idx=0, upper_class_idx=self._output_dim,
-                                verbose=False, margin=margin, s=s,
-                                label=self._label_index)
-    self._output = data
 
   def _build_Se(self):
     """Build symbol.
@@ -308,8 +190,7 @@ class FBNet_SE(object):
     data = self._data
 
     data = mx.sym.BatchNorm(data=data, fix_gamma=False, eps=2e-5, momentum=0.9, name='bn0')
-    data = mx.sym.Convolution(data=data, num_filter=self._f[0], kernel=(7, 7), stride=(2, 2), pad=(3, 3),
-                              no_bias=True, name="conv0")
+    data = mx.sym.Convolution(data=data, num_filter=self._f[0], kernel=(7, 7), stride=(2, 2), pad=(3, 3),no_bias=True, name="conv0")
     data = mx.sym.BatchNorm(data=data, fix_gamma=False, eps=2e-5, momentum=0.9, name='bn1')
     data = mx.sym.Activation(data=data, act_type='relu', name='relu0')
     data = mx.symbol.Pooling(data=data, kernel=(3, 3), stride=(2, 2), pad=(1, 1), pool_type='max')
@@ -326,8 +207,10 @@ class FBNet_SE(object):
 
         if l_index == 0:
           stride =2
+          dim_match = False
         else:
           stride =1
+          dim_match = True
 
         block_list = []
         for i_index in range(self._block_size):
@@ -340,18 +223,26 @@ class FBNet_SE(object):
           se = self._se[l_index]
 
           block_out = block_factory_se(input_symbol = data,name= prefix,num_filter=num_filter,group=group,stride=stride,
-                                       se= se,k_size=  kernel_size,type = type)
+                                       se= se,k_size=  kernel_size,type = type,dim_match= dim_match)
 
           block_out = mx.sym.expand_dims(block_out, axis=1)
           block_list.append(block_out)
 
         if b_index>=3 and l_index>=1:  # skip part
+          prefix = "layer_%d_%d_block_defConv" % (b_index, l_index)
+          self._logger.warn("name %s "%prefix)
+
           theta_var = mx.sym.var(tmp_name, shape=(self._block_size + 1,))
           gumbel_var = mx.sym.var(tmp_gumbel_name, shape=(self._block_size + 1,))
           self._input_shapes[tmp_name] = (self._block_size + 1,)
           self._input_shapes[tmp_gumbel_name] = (self._block_size + 1,)
           # TODO
-          block_list.append(mx.sym.expand_dims(data, axis=1))
+          block_out = block_factory_se(input_symbol=data, name=prefix, num_filter=2048, group=1,
+                                       stride=2,se=1, k_size=3, type='Deformable_Conv')
+
+          block_out = mx.sym.expand_dims(block_out, axis=1)
+          block_list.append(block_out)
+
           self._m_size.append(self._block_size+1)
         else:
           theta_var = mx.sym.var(tmp_name, shape=(self._block_size,))
@@ -659,6 +550,7 @@ class FBNet_SE(object):
           log_tic = time.time()
         
         if nbatch > 1 and (nbatch % self._save_frequence == 0):
+          save_dict = {}
           # TODO save checkpoint
           if os.path.exists(self._save_model_path) is False:
             os.mkdir(self._save_model_path)
