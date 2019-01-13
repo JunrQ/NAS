@@ -39,7 +39,7 @@ parser.set_defaults(
   # image_shape='1,28,28',
   feature_dim=192,
   conv_workspace=1024,  # this is the default value
-  save_checkpoint_frequence=3000,
+  save_checkpoint_frequence=5000,
   restore=False,
   optimizer='sgd',
   data_nthreads=16,
@@ -88,7 +88,7 @@ fbnet = FBNet_SE(batch_size=args.batch_size,
               model_type=args.model_type)
 
 fbnet.search(train, val, start_w_epochs=6, 
-	           lr_decay_step=args.lr_decay_step,
-             result_prefix=args.model_type + 'muti_1080Ti')
-	     #cosine_decay_step=args.cosine_decay_step)
+	           #lr_decay_step=args.lr_decay_step,
+             result_prefix=args.model_type + 'muti_1080Ti',
+	           cosine_decay_step=args.cosine_decay_step)
 

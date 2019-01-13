@@ -30,7 +30,7 @@ def block_factory_se(input_symbol, num_filter,name, k_size,type,
   k_size, group, stride  : int
     Conv_params
   type: list
-    block_type ['bottle_neck','resnet','Deformable_Conv']
+    block_type ['bottle_neck','resnet','deform_conv']
   prefix : str
     prefix string
   dim_match : bool
@@ -44,7 +44,7 @@ def block_factory_se(input_symbol, num_filter,name, k_size,type,
 
 
   """
-  assert type in ['bottle_neck','resnet','Deformable_Conv']
+  assert type in ['bottle_neck','resnet','deform_conv']
   data = input_symbol
   if bn:
     pass
@@ -66,9 +66,9 @@ def block_factory_se(input_symbol, num_filter,name, k_size,type,
     conv2 = mx.sym.Convolution(data=act2, num_filter=int(num_filter *expansion), kernel=(k_size, k_size), stride=(stride,stride),
                                  pad=(1, 1), num_group=group, no_bias=True, workspace=workspace, name=name + '_conv2')
 
+
     bn3 = mx.sym.BatchNorm(data=conv2, fix_gamma=False, eps=2e-5, momentum=bn_mom, name=name + '_bn3')
     act3 = mx.sym.Activation(data=bn3, act_type='relu', name=name + '_relu3')
-
     conv3 = mx.sym.Convolution(data=act3, num_filter=num_filter, kernel=(1, 1), stride=(1, 1), pad=(0, 0),
                                 num_group=group,no_bias=True,workspace=workspace, name=name + '_conv3')
      
@@ -126,7 +126,7 @@ def block_factory_se(input_symbol, num_filter,name, k_size,type,
       shortcut._set_attr(mirror_stage='True')
     return conv2 + shortcut
 
-  elif type == 'Deformable_Conv':
+  elif type == 'deform_conv':
     bn1 = mx.sym.BatchNorm(data=data, fix_gamma=False, momentum=bn_mom, eps=2e-5, name=name + '_bn1')
     act1 = mx.sym.Activation(data=bn1, act_type='relu', name=name + '_relu1')
 
@@ -134,7 +134,7 @@ def block_factory_se(input_symbol, num_filter,name, k_size,type,
                                                  num_filter=int(2*k_size*k_size*4), pad=(2, 2), kernel=(k_size, k_size), stride=(1, 1),
                                                  dilate=(2, 2), cudnn_off=True)
 
-    defo_conv1 = mx.contrib.symbol.DeformableConvolution(name=name+'DeformableConvolution1', data=act1,
+    defo_conv1 = mx.contrib.symbol.DeformableConvolution(name=name+'deform_conv1', data=act1,
                                                              offset=_offset,
                                                              num_filter=num_filter, pad=(2, 2), kernel=(k_size, k_size),
                                                              num_deformable_group=4,
@@ -147,14 +147,13 @@ def block_factory_se(input_symbol, num_filter,name, k_size,type,
     _offset = mx.symbol.Convolution(name=name+'_offset_2', data=act2,
                                     num_filter=int(2 * k_size * k_size * 4), pad=(2, 2), kernel=(k_size, k_size),
                                     stride=(1, 1),dilate=(2, 2), cudnn_off=True)
-
-    defo_conv2 = mx.contrib.symbol.DeformableConvolution(name=name+'DeformableConvolution2', data=act2,
+    #TODO  out = floor( (x+2*p-d*(k-1)-1) /s) +1
+    defo_conv2 = mx.contrib.symbol.DeformableConvolution(name=name+'deform_conv2', data=act2,
                                                    offset=_offset,
                                                    num_filter=num_filter, pad=(2, 2), kernel=(k_size, k_size),
                                                    num_deformable_group=4,
                                                    stride=(1, 1), dilate=(2, 2), no_bias=True)
     if se:
-      # implementation of SENet
       squeeze = mx.sym.Pooling(data=defo_conv2, global_pool=True, kernel=(7, 7), pool_type='avg',
                                  name=name + '_squeeze')
       squeeze = mx.symbol.Flatten(data=squeeze, name=name + '_flatten')
@@ -163,7 +162,7 @@ def block_factory_se(input_symbol, num_filter,name, k_size,type,
 
       excitation = mx.symbol.FullyConnected(data=excitation, num_hidden=num_filter, name=name + '_excitation2')
       excitation = mx.sym.Activation(data=excitation, act_type='sigmoid', name=name + '_excitation2_sigmoid')
-      conv2 = mx.symbol.broadcast_mul(data, mx.symbol.reshape(data=excitation, shape=(-1, num_filter, 1, 1)))
+      defo_conv2 = mx.symbol.broadcast_mul(data, mx.symbol.reshape(data=excitation, shape=(-1, num_filter, 1, 1)))
 
     if dim_match:
       shortcut = data
@@ -173,7 +172,7 @@ def block_factory_se(input_symbol, num_filter,name, k_size,type,
 
     if memonger:
       shortcut._set_attr(mirror_stage='True')
-    return conv2 + shortcut
+    return defo_conv2 + shortcut
 
   else:
       raise("Not Support op %s" %type)

@@ -107,7 +107,7 @@ def speed_test_se(input_shape, s_size, num_filter, dim_match = False,shape= Fals
 
     prefix = "block_%d" % block_idx
     type = 'bottle_neck' if block_idx<=3 else 'resnet'
-    dim_match = False if block_idx==0 else True
+    dim_match = False
 
     block_out = block_factory_se(input_symbol=data, name=prefix, num_filter=num_filter, group=group, stride=stride,
                                  se=se, k_size=kernel_size, type=type,dim_match=dim_match)
@@ -121,7 +121,7 @@ def speed_test_se(input_shape, s_size, num_filter, dim_match = False,shape= Fals
   if shape:  # skip part
     prefix = "block_deformable_2"
     block_out = block_factory_se(input_symbol=data, name=prefix, num_filter=num_filter, group=1,
-                                 stride=1,se=0, k_size=3, type='shape',dim_match=dim_match)
+                                 stride=1,se=0, k_size=3, type='deform_conv',dim_match=dim_match)
 
     block_out = mx.sym.expand_dims(block_out, axis=1)
     block_list.append(block_out)
@@ -171,6 +171,6 @@ if __name__ == '__main__':
   # speed_test((184, 7, 7), 1, 184) # 3 layertrue
   #speed_test((184, 7, 7), 1, 352)
   
-  #speed_test_se((16, 108, 108),1, 256,shape = True)
+  speed_test_se((16, 108, 108),1, 256,shape = True)
   speed_test_se((256, 54, 54),1, 512,shape = True)
   #speed_test_se((256, 54, 54),2, 512,dim_match = False,shape = True)

@@ -238,7 +238,7 @@ class FBNet_SE(object):
           self._input_shapes[tmp_gumbel_name] = (self._block_size + 1,)
           # TODO
           block_out = block_factory_se(input_symbol=data, name=prefix, num_filter=2048, group=1,
-                                       stride=2,se=1, k_size=3, type='Deformable_Conv')
+                                       stride=2,se=1, k_size=3, type='deform_conv')
 
           block_out = mx.sym.expand_dims(block_out, axis=1)
           block_list.append(block_out)
