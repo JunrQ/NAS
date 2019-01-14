@@ -67,15 +67,12 @@ class FBNet_SE(object):
     """
     self._unistage = 4
 
-    self._n = [3,1,1,2]
-    self._f = [64, 256,512, 1024, 2048]
-
-    self._se = [0, 1, 0, 1,
-                 0, 1, 0, 1]
-    self._kernel = [3, 3, 3, 3,
-                    3, 3, 3, 3]
-    self._group = [1, 1, 2, 2,
-                   1, 1, 2, 2]
+    self._n = [3,4,6,3]
+    self._f = [64, 256, 512, 1024, 2048]
+    self._bottle_neck = [1,1,0,0,0]
+    self._se =    [0, 0, 0, 1, 0]
+    self._kernel =[3, 3, 3, 3, 3]
+    self._group = [1, 2, 1, 1, 2]
 
     self._block_size = len(self._group)
 
@@ -153,7 +150,7 @@ class FBNet_SE(object):
   def init_optimizer(self, lr_decay_step=None, cosine_decay_step=None):
     """Init optimizer, define updater.
     """
-    optimizer_params_w = {'learning_rate':0.004,
+    optimizer_params_w = {'learning_rate':0.02,
                           'momentum':0.9,
                           'clip_gradient': 10.0,
                           'wd':1e-4}
@@ -167,13 +164,13 @@ class FBNet_SE(object):
       optimizer_params_w.setdefault("lr_scheduler", lr_scheduler)
     if cosine_decay_step is not None:
 
-      lr_scheduler = CosineDecayScheduler_Grad(
-        first_decay_step=cosine_decay_step,
-        t_mul=2.0, m_mul=0.9, alpha=0.0001, base_lr=optimizer_params_w['learning_rate'])
+      # lr_scheduler = CosineDecayScheduler_Grad(
+      #   first_decay_step=cosine_decay_step,
+      #   t_mul=2.0, m_mul=0.9, alpha=0.001, base_lr=optimizer_params_w['learning_rate'])
 
-      # lr_scheduler = mx.lr_scheduler.CosineDecayScheduler(
-      #     first_decay_step=cosine_decay_step,
-      #     t_mul=2.0, m_mul=0.9, alpha=0.0001, base_lr=optimizer_params_w['learning_rate'])
+      lr_scheduler = mx.lr_scheduler.CosineDecayScheduler(
+          first_decay_step=cosine_decay_step,
+          t_mul=2.0, m_mul=0.9, alpha=0.0001, base_lr=optimizer_params_w['learning_rate'])
       optimizer_params_w.setdefault("lr_scheduler", lr_scheduler)
     self._w_updater = mx.optimizer.get_updater(
       mx.optimizer.create('sgd', **optimizer_params_w))
@@ -214,13 +211,16 @@ class FBNet_SE(object):
 
         block_list = []
         for i_index in range(self._block_size):
-          type = 'bottle_neck' if i_index <=3 else 'resnet'
-
-          prefix = "layer_%d_%d_block_%d" % (b_index, l_index, i_index)
-
-          group = self._group[l_index]
-          kernel_size = self._kernel[l_index]
-          se = self._se[l_index]
+          type = 'bottle_neck' if i_index<=1 else 'resnet'
+          # if self._bottle_neck[i_index] == 1:
+          #   type = 'bottle_neck'
+          # else:
+          #   type = 'resnet'
+          prefix = "layer_%s_%d_%d_block_%d" % (type,b_index, l_index, i_index)
+          #self._logger.info('layer_params %s'%prefix)
+          group = self._group[i_index]
+          kernel_size = self._kernel[i_index]
+          se = self._se[i_index]
 
           block_out = block_factory_se(input_symbol = data,name= prefix,num_filter=num_filter,group=group,stride=stride,
                                        se= se,k_size=  kernel_size,type = type,dim_match= dim_match)
@@ -228,7 +228,7 @@ class FBNet_SE(object):
           block_out = mx.sym.expand_dims(block_out, axis=1)
           block_list.append(block_out)
 
-        if b_index>=3 and l_index>=1:  # skip part
+        if b_index>=3 and l_index>=1:  # deformable_Conv part
           prefix = "layer_%d_%d_block_defConv" % (b_index, l_index)
           self._logger.warn("name %s "%prefix)
 
@@ -237,9 +237,9 @@ class FBNet_SE(object):
           self._input_shapes[tmp_name] = (self._block_size + 1,)
           self._input_shapes[tmp_gumbel_name] = (self._block_size + 1,)
           # TODO
-          block_out = block_factory_se(input_symbol=data, name=prefix, num_filter=2048, group=1,
+          block_out = block_factory_se(input_symbol=data, name=prefix, num_filter=num_filter, group=1,
                                        stride=2,se=1, k_size=3, type='deform_conv')
-
+          
           block_out = mx.sym.expand_dims(block_out, axis=1)
           block_list.append(block_out)
 
@@ -460,9 +460,14 @@ class FBNet_SE(object):
         for idx in range(len_ctx):
           weight = self._param_arrays[idx][i]
           if idx == 0:
-            grad_ = [tmp[i].as_in_context(weight.context) for tmp in self._grad_arrays]
+            z = mx.nd.ones(weight.shape, weight.context)
+            for tmp in self._grad_arrays:
+              z = tmp[i].copyto(z)
+              self._grad_arrays[idx][i] += z
+            grad_ = self._grad_arrays[idx][i]
+            #grad_ = [tmp[i].as_in_context(mx.cpu()) for tmp in self._grad_arrays]
             if len(grad_) > 1:
-              grad_ = reduce(lambda x, y: x + y, grad_)
+              #grad_ = reduce(lambda x, y: x + y, grad_)
               grad_ = grad_ / len_ctx
             else:
               grad_ = grad_[0]
@@ -485,13 +490,19 @@ class FBNet_SE(object):
         for idx in range(len_ctx):
           weight = self._param_arrays[idx][i]
           if idx == 0:
-            grad_ = [tmp[i].as_in_context(weight.context) for tmp in self._grad_arrays]
+            z = mx.nd.ones(weight.shape, weight.context)
+            for tmp in self._grad_arrays:
+              z = tmp[i].copyto(z)
+              self._grad_arrays[idx][i] += z
+            grad_ = self._grad_arrays[idx][i]
+
+            # grad_ = [tmp[i].as_in_context(mx.cpu()) for tmp in self._grad_arrays]
             if len(grad_) > 1:
-              grad_ = reduce(lambda x, y: x + y, grad_)
+              #grad_ = reduce(lambda x, y: x + y, grad_)
               grad_ = grad_ / len_ctx
             else:
               grad_ = grad_[0]
-            grad = grad_
+            grad = grad_.as_in_context(weight.context)
           else:
             grad = grad_.as_in_context(weight.context)
           self._theta_updater(i * len(self._ctxs) + idx, grad, weight)
