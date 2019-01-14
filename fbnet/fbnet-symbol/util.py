@@ -225,7 +225,8 @@ class CosineDecayScheduler_Grad(LRScheduler):
             self.base_lr = self.init_lr
             self.mini_lr = self.init_lr * self.alpha
             self.rise_grad = (self.init_lr - self.mini_lr) / self.rise_region
-	        #logging.info("Update[%d]: Change learning rate to %f rise_grad is %f",num_update,self.base_lr,self.rise_grad)
+            _logger.info("Update[%d]: Change learning rate to %f rise_grad is %f",num_update,self.base_lr,self.rise_grad)
+
             self.T_0 = int(self.T_0 * self.t_mul)
             self.first_flag = False
         else:
