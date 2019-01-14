@@ -51,7 +51,7 @@ parser.set_defaults(
   isgray=False,
   save_model_path = './model',
   lr_decay_step=[35, 75,125,150,175,200,225,250,275,300,325,350],
-  cosine_decay_step=2000,
+  cosine_decay_step=3000,
 )
 args = parser.parse_args()
 train_w_ds = get_train_ds(args)
@@ -89,6 +89,6 @@ fbnet = FBNet_SE(batch_size=args.batch_size,
 
 fbnet.search(train, val, start_w_epochs=6, 
 	           #lr_decay_step=args.lr_decay_step,
-             result_prefix=args.model_type + 'muti_1080Ti',
+             result_prefix=args.model_type + 'senet_cosine_1080Ti',
 	           cosine_decay_step=args.cosine_decay_step)
 
