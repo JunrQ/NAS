@@ -131,28 +131,28 @@ def block_factory_se(input_symbol, num_filter,name, k_size,type,
     act1 = mx.sym.Activation(data=bn1, act_type='relu', name=name + '_relu1')
 
     _offset = mx.symbol.Convolution(name=name+'_offset_1', data=act1,
-                                                 num_filter=int(2*k_size*k_size*4), pad=(2, 2), kernel=(k_size, k_size), stride=(1, 1),
-                                                 dilate=(2, 2), cudnn_off=True)
+                                                 num_filter=int(2*k_size*k_size*2), pad=(1, 1), kernel=(k_size, k_size), stride=(1, 1),
+                                                 dilate=(1, 1), cudnn_off=True)
 
     defo_conv1 = mx.contrib.symbol.DeformableConvolution(name=name+'deform_conv1', data=act1,
                                                              offset=_offset,
-                                                             num_filter=int(num_filter *expansion), pad=(2, 2), kernel=(k_size, k_size),
-                                                             num_deformable_group=4,
-                                                             stride=(1, 1), dilate=(2, 2), no_bias=True)
+                                                             num_filter=int(num_filter *expansion), pad=(1, 1), kernel=(k_size, k_size),
+                                                             num_deformable_group=2,
+                                                             stride=(1, 1), dilate=(1, 1), no_bias=True)
     
 
     bn2 = mx.sym.BatchNorm(data=defo_conv1, fix_gamma=False, momentum=bn_mom, eps=2e-5, name=name + '_bn2')
     act2 = mx.sym.Activation(data=bn2, act_type='relu', name=name + '_relu2')
 
     _offset = mx.symbol.Convolution(name=name+'_offset_2', data=act2,
-                                    num_filter=int(2 * k_size * k_size * 4), pad=(2, 2), kernel=(k_size, k_size),
-                                    stride=(1, 1),dilate=(2, 2), cudnn_off=True)
+                                    num_filter=int(2 * k_size * k_size * 2), pad=(1, 1), kernel=(k_size, k_size),
+                                    stride=(1, 1),dilate=(1, 1), cudnn_off=True)
     #TODO  out = floor( (x+2*p-d*(k-1)-1) /s) +1
     defo_conv2 = mx.contrib.symbol.DeformableConvolution(name=name+'deform_conv2', data=act2,
                                                    offset=_offset,
-                                                   num_filter=int(num_filter), pad=(2, 2), kernel=(k_size, k_size),
-                                                   num_deformable_group=4,
-                                                   stride=(1, 1), dilate=(2, 2), no_bias=True)
+                                                   num_filter=int(num_filter), pad=(1, 1), kernel=(k_size, k_size),
+                                                   num_deformable_group=2,
+                                                   stride=(1, 1), dilate=(1, 1), no_bias=True)
     if se:
       squeeze = mx.sym.Pooling(data=defo_conv2, global_pool=True, kernel=(7, 7), pool_type='avg',
                                  name=name + '_squeeze')
