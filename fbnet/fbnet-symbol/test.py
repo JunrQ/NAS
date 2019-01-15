@@ -5,7 +5,7 @@ import logging
 from time import gmtime, strftime
 import time
 
-sys.path.insert(0, '/home/zhouchangqing/mxnet/incubator-mxnet_12_20/python')
+sys.path.insert(0, '/home/zhouchangqing/mxnet/incubator-mxnet_12_26/python')
 import mxnet as mx
 from FBNet import FBNet
 from FBNet_SE import FBNet_SE
@@ -42,7 +42,7 @@ parser.set_defaults(
   # image_shape='1,28,28',
   feature_dim=192,
   conv_workspace=1024,  # this is the default value
-  save_checkpoint_frequence=30000,
+  save_checkpoint_frequence=5000,
   restore=False, # TODO
   optimizer='sgd',
   data_nthreads=16,
@@ -56,7 +56,7 @@ parser.set_defaults(
   isgray=False,
   lr_decay_step=[15, 35, 60, 95],
   cosine_decay_step=3000,
-  save_model_path = './model'
+  save_model_path = '/mnt/data4/wjq/model'
 )
 args = parser.parse_args()
 train_w_ds = get_train_ds(args)
@@ -96,5 +96,5 @@ fbnet = FBNet_SE(batch_size=args.batch_size,
               save_model_path = args.save_model_path
               )
 
-fbnet.search(train, val, start_w_epochs=5, # lr_decay_step=args.lr_decay_step,
-             result_prefix=args.model_type + '_1080Ti_plus_8w', cosine_decay_step=args.cosine_decay_step)
+fbnet.search(train, val, start_w_epochs=8, # lr_decay_step=args.lr_decay_step,
+             result_prefix=args.model_type + '_SE_1080Ti_Cosine_grad', cosine_decay_step=args.cosine_decay_step)

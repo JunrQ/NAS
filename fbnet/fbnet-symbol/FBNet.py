@@ -129,6 +129,7 @@ class FBNet(object):
     self._load_model_path = load_model_path
     # TODO(ZhouJ) use kvstore for updating
     self._kvstore = kvstore
+    self._avg_grad_dict = None
 
     if isinstance(eval_metric, list):
       eval_metric_list = []
@@ -418,7 +419,20 @@ class FBNet(object):
       if not k[0] in self._arg_dict[0].keys():
         break
       self._no_update_params_name.add(k[0])
+    
+    # Malloc for Multi-Card Gradient Memory
+    if self._avg_grad_dict is None:
+      self._avg_grad_dict = {}
+      self._ctx_idx_grad_dict = {}
 
+    avg_dict_size = [0] * len(self._ctxs)
+    for n, p in zip(self._arg_names, self._param_arrays[0]):
+      if not (n in self._no_update_params_name):
+        ctx_idx = np.argmin(avg_dict_size)
+        avg_dict_size[ctx_idx] += p.size
+        tmp_array = mx.nd.zeros(p.shape, self._ctxs[ctx_idx])
+        self._avg_grad_dict[n] = tmp_array
+        self._ctx_idx_grad_dict[n] = ctx_idx
     return start_epoch
 
 
@@ -462,26 +476,38 @@ class FBNet(object):
     """Update parameters of $w_a$
     """
     self.forward_backward(data, label, temperature)
-    len_ctx = len(self._ctxs)
+    
+    # if self._avg_grad_dict is None:
+    #   self._avg_grad_dict = {}
+    #   self._ctx_idx_grad_dict = {}
 
+    # avg_dict_size = [0] * len(self._ctxs)
+    # for n, p in zip(self._arg_names, self._param_arrays[0]):
+    #   if not (n in self._no_update_params_name):
+    #     ctx_idx = np.argmin(avg_dict_size)
+    #     avg_dict_size[ctx_idx] += p.size
+    #     tmp_array = mx.nd.zeros(p.shape, self._ctxs[ctx_idx])
+    #     self._avg_grad_dict[n] = tmp_array
+    #     self._ctx_idx_grad_dict[n] = ctx_idx
+    len_ctx = len(self._ctxs)
+    
     for i in range(len(self._param_arrays[0])):
       name = self._arg_names[i]
       if (not self._theta_unique_name in name) and \
         (not name in self._no_update_params_name):
-        for idx in range(len_ctx):
+        ctx_idx = self._ctx_idx_grad_dict[name]
+        for idx_ in range(ctx_idx, len_ctx + ctx_idx):
+          idx = idx_ % len_ctx
           weight = self._param_arrays[idx][i]
-          if idx == 0:
-            grad_ = [tmp[i].as_in_context(weight.context) for tmp in self._grad_arrays]
-            if len(grad_) > 1:
-              grad_ = reduce(lambda x, y: x + y, grad_)
-              grad_ = grad_ / len_ctx
-            else:
-              grad_ = grad_[0]
-            grad = grad_
-          else:
-            grad = grad_.as_in_context(weight.context)
-
-          self._w_updater(i * len(self._ctxs) + idx, grad, weight)
+          if idx == ctx_idx:
+            z = self._avg_grad_dict[name]
+            for tmp in self._grad_arrays:
+              z = tmp[i].copyto(z)
+              self._grad_arrays[idx][i] += z
+            grad_ = self._grad_arrays[idx][i]
+            grad_ = grad_ / len_ctx
+          grad = grad_.as_in_context(weight.context)
+          self._w_updater(i * len(self._ctxs) + idx_ - ctx_idx, grad, weight)
 
   def update_theta(self, data, label, temperature):
     """Update $\theta$.
@@ -493,19 +519,20 @@ class FBNet(object):
       name = self._arg_names[i]
       if self._theta_unique_name in name and \
          (not name in self._no_update_params_name):
-        for idx in range(len_ctx):
+        ctx_idx = self._ctx_idx_grad_dict[name]
+        for idx_ in range(ctx_idx, len_ctx + ctx_idx):
+          idx = idx_ % len_ctx
           weight = self._param_arrays[idx][i]
-          if idx == 0:
-            grad_ = [tmp[i].as_in_context(weight.context) for tmp in self._grad_arrays]
-            if len(grad_) > 1:
-              grad_ = reduce(lambda x, y: x + y, grad_)
-              grad_ = grad_ / len_ctx
-            else:
-              grad_ = grad_[0]
-            grad = grad_
-          else:
-            grad = grad_.as_in_context(weight.context)
-          self._theta_updater(i * len(self._ctxs) + idx, grad, weight)
+          if idx == ctx_idx:
+            z = self._avg_grad_dict[name]
+            for tmp in self._grad_arrays:
+              z = tmp[i].copyto(z)
+              self._grad_arrays[idx][i] += z
+            grad_ = self._grad_arrays[idx][i]
+            grad_ = grad_ / len_ctx
+
+          grad = grad_.as_in_context(weight.context)
+          self._w_updater(i * len(self._ctxs) + idx_ - ctx_idx, grad, weight)
 
   def _train(self, dataset, epochs, updater_func, start_epoch=0):
     assert isinstance(dataset, mx.io.DataIter)

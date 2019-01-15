@@ -11,7 +11,7 @@ import mxnet as mx
 from mxnet.lr_scheduler import LRScheduler
 import math
 import argparse
-logging.basicConfig(level=logging.DEBUG)
+#logging.basicConfig(level=logging.DEBUG)
 import gzip, struct
 import errno
 import subprocess
@@ -199,7 +199,7 @@ class CosineDecayScheduler_Grad(LRScheduler):
        alpha: float, lr_min / lr_max
        rise_region, (lr_max - lr_min) / rise_region
     """
-    def __init__(self, first_decay_step, t_mul=2.0, m_mul=0.5, alpha=0.001, base_lr=0.01,rise_region=100):
+    def __init__(self, first_decay_step, t_mul=2.0, m_mul=0.5, alpha=0.001, base_lr=0.01,rise_region=300):
         super(CosineDecayScheduler_Grad, self).__init__(base_lr)
         assert isinstance(first_decay_step, int)
         if first_decay_step < 1:
@@ -227,7 +227,7 @@ class CosineDecayScheduler_Grad(LRScheduler):
             self.rise_grad = (self.init_lr - self.mini_lr) / self.rise_region
             _logger.info("Update[%d]: Change learning rate to %f rise_grad is %f",num_update,self.base_lr,self.rise_grad)
 
-            self.T_0 = int(self.T_0 * self.t_mul)
+            #self.T_0 = int(self.T_0 * self.t_mul)
             self.first_flag = False
         else:
             if T_cur <= self.rise_region and self.first_flag == False:
