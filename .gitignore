@@ -4,5 +4,5 @@
 *.gz
 /fbnet/fbnet-symbol/log/
 /fbnet/fbnet-symbol/data/
-.ideal/
+.idea/
 fbnet/fbnet-symbol/model/
