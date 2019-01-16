@@ -406,8 +406,7 @@ class FBNet(object):
         for name, arr in self._aux_dict[i].items():
           if name not in self._input_shapes:
             self._aux_dict[i][name][:] = aux_params[name]
-
-        self._logger.info("Success load_model for biuild exe")
+        #self._logger.info("Success load_model for biuild exe")
 
     self._no_update_params_name = set((self._data_name, self._label_name,
             "temperature"))
@@ -721,16 +720,19 @@ class FBNet(object):
     self.init_optimizer(lr_decay_step=lr_decay_step,
                         cosine_decay_step=cosine_decay_step)
 
-    if start_epoch <= start_w_epochs - 1:
-      self.train_w_a(w_s_ds, start_w_epochs - 1,
+    w_epochs = int(start_epoch - start_w_epochs - 1)
+    if w_epochs <= 0:
+      self.train_w_a(w_s_ds, epochs = int(start_w_epochs - start_epoch -1),
                      start_epoch=start_epoch, temperature=init_temperature)
-    else:
-      temperature = init_temperature * pow(temperature_annel, int(start_epoch - start_w_epochs - 1))
-      for epoch in range(start_epoch, epochs):
-        self.train_w_a(w_s_ds, epochs=1, start_epoch=epoch,
+     
+    start_epoch = max(w_epochs,0)
+    temperature = init_temperature * pow(temperature_annel, start_epoch)
+    
+    for epoch in range(start_epoch, epochs - start_w_epochs):
+      self.train_w_a(w_s_ds, epochs=1, start_epoch=epoch,
                        temperature=temperature)
-        self.train_theta(theta_ds, epochs=1, start_epoch=epoch,
+      self.train_theta(theta_ds, epochs=1, start_epoch=epoch,
                          temperature=temperature)
-        self.get_theta(save_path="./theta-result/%sepoch_%d_theta.txt" %
+      self.get_theta(save_path="./theta-result/%sepoch_%d_theta.txt" %
                                  (result_prefix, epoch))
-        temperature *= temperature_annel
+      temperature *= temperature_annel
