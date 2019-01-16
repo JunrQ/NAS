@@ -168,7 +168,7 @@ class FBNet_SE(object):
       
       lr_scheduler = CosineDecayScheduler_Grad(
         first_decay_step=cosine_decay_step,
-        t_mul=2.0, m_mul=0.95, alpha=0.001, base_lr=0.007,rise_region=300)
+        t_mul=2.0, m_mul=0.95, alpha=0.001, base_lr=0.005,rise_region=300)
       # lr_scheduler = mx.lr_scheduler.CosineDecayScheduler(
       #     first_decay_step=cosine_decay_step,
       #     t_mul=2.0, m_mul=0.9, alpha=0.0001, base_lr=optimizer_params_w['learning_rate'])
@@ -695,17 +695,23 @@ class FBNet_SE(object):
 
     self.init_optimizer(lr_decay_step=lr_decay_step,
                         cosine_decay_step=cosine_decay_step)
-
-    if start_epoch <= start_w_epochs - 1:
-      self.train_w_a(w_s_ds, start_w_epochs - 1,
+    
+    
+    w_epochs = int(start_w_epochs - start_epoch -1 )
+    if w_epochs > 0:
+      self.train_w_a(w_s_ds, epochs = w_epochs,
                      start_epoch=start_epoch, temperature=init_temperature)
+      temperature = init_temperature               
     else:
-      temperature = init_temperature * pow(temperature_annel, int(start_epoch - start_w_epochs - 1))
-      for epoch in range(start_epoch, epochs):
-        self.train_w_a(w_s_ds, epochs=1, start_epoch=epoch,
+      temperature = init_temperature * pow(temperature_annel, -1*w_epochs)
+    
+    start_epoch = max(start_w_epochs -1,start_epoch)
+
+    for epoch in range(start_epoch, epochs):
+      self.train_w_a(w_s_ds, epochs=1, start_epoch=epoch,
                        temperature=temperature)
-        self.train_theta(theta_ds, epochs=1, start_epoch=epoch,
+      self.train_theta(theta_ds, epochs=1, start_epoch=epoch,
                          temperature=temperature)
-        self.get_theta(save_path="./theta-result/%sepoch_%d_theta.txt" %
+      self.get_theta(save_path="./theta-result/%sepoch_%d_theta.txt" %
                                  (result_prefix, epoch))
-        temperature *= temperature_annel
+      temperature *= temperature_annel
