@@ -49,7 +49,7 @@ class FBNet_SE(object):
     beta : float
       loss aprameters, default is 0.6
     feature_dim : int
- dimensions, default is 192
+      dimensions, default is 192
     model_type : str
       for now, support `softmax`, `amsoftmax`, `arcface`,
       softmax mean original fc
@@ -155,7 +155,9 @@ class FBNet_SE(object):
     optimizer_params_w = {'learning_rate':0.005,
                           'momentum':0.9,
                           'clip_gradient': 10.0,
-                          'wd':1e-4}
+                          'wd':1e-4,
+                          'sym': self._loss,
+                          'rescale_grad': 1.0 / self._batch_size}
     batch_num = self._num_examples / self._batch_size
     self._batch_num = batch_num
     if lr_decay_step is not None:
@@ -304,7 +306,6 @@ class FBNet_SE(object):
     ce = -self._label * mx.sym.log(self._softmax_output + self._eps) - \
       (1.0 - self._label) * mx.sym.log(1.0 - self._softmax_output + self._eps)
     ce = mx.sym.sum(ce)
-    # TODO(ZhouJ) test time in real environment
     with open('speed_se.txt', 'r') as f:
       speed_f = f.readlines()
     for l in range(len(self._m)):
@@ -394,7 +395,7 @@ class FBNet_SE(object):
           if name not in self._input_shapes:
             self._aux_dict[i][name][:] = aux_params[name]
 
-        self._logger.info("Success load_model for biuildexe")
+        self._logger.info("Success load_model for build executor")
 
     self._no_update_params_name = set((self._data_name, self._label_name,
             "temperature"))
@@ -568,7 +569,6 @@ class FBNet_SE(object):
             os.mkdir(self._save_model_path)
 
           # Symbol.save  json_file
-
           json_name = os.path.join(self._save_model_path,'checkpoint-{}-symbol.json').format(self._model_type)
           self._loss.save(json_name)
 

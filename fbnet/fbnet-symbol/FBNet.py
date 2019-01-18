@@ -48,7 +48,7 @@ class FBNet(object):
     beta : float
       loss aprameters, default is 0.6
     feature_dim : int
- dimensions, default is 192
+      dimensions, default is 192
     model_type : str
       for now, support `softmax`, `amsoftmax`, `arcface`,
       softmax mean original fc
@@ -164,10 +164,12 @@ class FBNet(object):
   def init_optimizer(self, lr_decay_step=None, cosine_decay_step=None):
     """Init optimizer, define updater.
     """
-    optimizer_params_w = {'learning_rate':0.004,
+    optimizer_params_w = {'learning_rate':0.005,
                           'momentum':0.9,
                           'clip_gradient': 10.0,
-                          'wd':1e-4}
+                          'wd':1e-4,
+                          'sym': self._loss,
+                          'rescale_grad': 1.0 / self._batch_size}
     batch_num = self._num_examples / self._batch_size
     self._batch_num = batch_num
     if lr_decay_step is not None:
@@ -318,8 +320,8 @@ class FBNet(object):
     ce = -self._label * mx.sym.log(self._softmax_output + self._eps) - \
       (1.0 - self._label) * mx.sym.log(1.0 - self._softmax_output + self._eps)
     ce = mx.sym.sum(ce)
-    # TODO(ZhouJ) test time in real environment
-    speed_f = open('speed.txt', 'r').readlines()
+    with open('speed_se.txt', 'r') as f:
+      speed_f = f.readlines()
     for l in range(len(self._m)):
       b_l_i = []
       speed_b_tmp = speed_f[l].strip().split(' ')
@@ -394,7 +396,7 @@ class FBNet(object):
               init_dict[name] = arr.as_in_context(mx.cpu())
           elif self._theta_unique_name in name:
             arr[:] = self._theta_init_value
-        self._logger.info("Success init_params for biuild exe")
+        self._logger.info("Success init_params for build executor")
       else:
 
         arg_params, aux_params, start_epoch = self.load_model()
@@ -406,7 +408,6 @@ class FBNet(object):
         for name, arr in self._aux_dict[i].items():
           if name not in self._input_shapes:
             self._aux_dict[i][name][:] = aux_params[name]
-        #self._logger.info("Success load_model for biuild exe")
 
     self._no_update_params_name = set((self._data_name, self._label_name,
             "temperature"))
@@ -433,7 +434,6 @@ class FBNet(object):
         self._avg_grad_dict[n] = tmp_array
         self._ctx_idx_grad_dict[n] = ctx_idx
     return start_epoch
-
 
   def forward_backward(self, data, label, temperature=5.0):
     data_slice = []
@@ -475,21 +475,8 @@ class FBNet(object):
     """Update parameters of $w_a$
     """
     self.forward_backward(data, label, temperature)
-    
-    # if self._avg_grad_dict is None:
-    #   self._avg_grad_dict = {}
-    #   self._ctx_idx_grad_dict = {}
-
-    # avg_dict_size = [0] * len(self._ctxs)
-    # for n, p in zip(self._arg_names, self._param_arrays[0]):
-    #   if not (n in self._no_update_params_name):
-    #     ctx_idx = np.argmin(avg_dict_size)
-    #     avg_dict_size[ctx_idx] += p.size
-    #     tmp_array = mx.nd.zeros(p.shape, self._ctxs[ctx_idx])
-    #     self._avg_grad_dict[n] = tmp_array
-    #     self._ctx_idx_grad_dict[n] = ctx_idx
     len_ctx = len(self._ctxs)
-    
+
     for i in range(len(self._param_arrays[0])):
       name = self._arg_names[i]
       if (not self._theta_unique_name in name) and \
