@@ -11,6 +11,7 @@ from blocks_se import block_factory_se
 from blocks import block_factory, block_factory_test
 from util import sample_gumbel, ce, CosineDecayScheduler_Grad
 import glob
+from util import _logger
 
 class FBNet_SE(object):
   def __init__(self, batch_size, output_dim,
@@ -21,7 +22,7 @@ class FBNet_SE(object):
                label_shape=None,
                data_name='data',
                label_name='softmax_label',
-               logger=logging,
+               logger=_logger,
                ctxs=[mx.cpu()],
                initializer=mx.initializer.Normal(),
                theta_unique_name='theta_arc',
@@ -48,7 +49,7 @@ class FBNet_SE(object):
     beta : float
       loss aprameters, default is 0.6
     feature_dim : int
- dimensions, default is 192
+      dimensions, default is 192
     model_type : str
       for now, support `softmax`, `amsoftmax`, `arcface`,
       softmax mean original fc
@@ -116,6 +117,7 @@ class FBNet_SE(object):
     self._load_model_path = load_model_path
     # TODO(ZhouJ) use kvstore for updating
     self._kvstore = kvstore
+    self._avg_grad_dict = None
 
     if isinstance(eval_metric, list):
       eval_metric_list = []
@@ -150,10 +152,12 @@ class FBNet_SE(object):
   def init_optimizer(self, lr_decay_step=None, cosine_decay_step=None):
     """Init optimizer, define updater.
     """
-    optimizer_params_w = {'learning_rate':0.02,
+    optimizer_params_w = {'learning_rate':0.005,
                           'momentum':0.9,
                           'clip_gradient': 10.0,
-                          'wd':1e-4}
+                          'wd':1e-4,
+                          'sym': self._loss,
+                          'rescale_grad': 1.0 / self._batch_size}
     batch_num = self._num_examples / self._batch_size
     self._batch_num = batch_num
     if lr_decay_step is not None:
@@ -163,14 +167,14 @@ class FBNet_SE(object):
           factor=0.5)
       optimizer_params_w.setdefault("lr_scheduler", lr_scheduler)
     if cosine_decay_step is not None:
+      
+      lr_scheduler = CosineDecayScheduler_Grad(
+        first_decay_step=cosine_decay_step,
+        t_mul=2.0, m_mul=0.95, alpha=0.001, base_lr=0.005,rise_region=300)
+      # lr_scheduler = mx.lr_scheduler.CosineDecayScheduler(
+      #     first_decay_step=cosine_decay_step,
+      #     t_mul=2.0, m_mul=0.9, alpha=0.0001, base_lr=optimizer_params_w['learning_rate'])
 
-      # lr_scheduler = CosineDecayScheduler_Grad(
-      #   first_decay_step=cosine_decay_step,
-      #   t_mul=2.0, m_mul=0.9, alpha=0.001, base_lr=optimizer_params_w['learning_rate'])
-
-      lr_scheduler = mx.lr_scheduler.CosineDecayScheduler(
-          first_decay_step=cosine_decay_step,
-          t_mul=2.0, m_mul=0.9, alpha=0.0001, base_lr=optimizer_params_w['learning_rate'])
       optimizer_params_w.setdefault("lr_scheduler", lr_scheduler)
     self._w_updater = mx.optimizer.get_updater(
       mx.optimizer.create('sgd', **optimizer_params_w))
@@ -186,11 +190,11 @@ class FBNet_SE(object):
     self._logger.info("Build symbol")
     data = self._data
 
-    data = mx.sym.BatchNorm(data=data, fix_gamma=False, eps=2e-5, momentum=0.9, name='bn0')
-    data = mx.sym.Convolution(data=data, num_filter=self._f[0], kernel=(7, 7), stride=(2, 2), pad=(3, 3),no_bias=True, name="conv0")
-    data = mx.sym.BatchNorm(data=data, fix_gamma=False, eps=2e-5, momentum=0.9, name='bn1')
+    data = mx.sym.Convolution(data=data, num_filter=self._f[0], kernel=(3, 3), stride=(1, 1), pad=(1, 1),no_bias=True, name="conv0")
+    data = mx.sym.BatchNorm(data=data, fix_gamma=False, eps=2e-5, momentum=0.9, name= 'bn0')
     data = mx.sym.Activation(data=data, act_type='relu', name='relu0')
-    data = mx.symbol.Pooling(data=data, kernel=(3, 3), stride=(2, 2), pad=(1, 1), pool_type='max')
+    data = mx.symbol.Pooling(data=data, kernel=(3, 3), stride=(2, 2), pad=(1, 1), pool_type='max', name='pool0', 
+                                 pooling_convention='full')
 
     for b_index in range(self._unistage):
 
@@ -202,20 +206,16 @@ class FBNet_SE(object):
         tmp_gumbel_name = "layer_%d_%d_%s" % (b_index, l_index, "gumbel_random")
         self._theta_name.append(tmp_name)
 
-        if l_index == 0:
+        if b_index != 0 and  l_index ==0:
           stride =2
-          dim_match = False
         else:
           stride =1
-          dim_match = True
-
+        dim_match = False if l_index == 0 else True
         block_list = []
         for i_index in range(self._block_size):
+          
           type = 'bottle_neck' if i_index<=1 else 'resnet'
-          # if self._bottle_neck[i_index] == 1:
-          #   type = 'bottle_neck'
-          # else:
-          #   type = 'resnet'
+         
           prefix = "layer_%s_%d_%d_block_%d" % (type,b_index, l_index, i_index)
           #self._logger.info('layer_params %s'%prefix)
           group = self._group[i_index]
@@ -227,8 +227,8 @@ class FBNet_SE(object):
 
           block_out = mx.sym.expand_dims(block_out, axis=1)
           block_list.append(block_out)
-
-        if b_index>=3 and l_index>=1:  # deformable_Conv part
+         # TODO  deformable_Conv part
+        if b_index>=3 and l_index>=1: 
           prefix = "layer_%d_%d_block_defConv" % (b_index, l_index)
           self._logger.warn("name %s "%prefix)
 
@@ -306,14 +306,14 @@ class FBNet_SE(object):
     ce = -self._label * mx.sym.log(self._softmax_output + self._eps) - \
       (1.0 - self._label) * mx.sym.log(1.0 - self._softmax_output + self._eps)
     ce = mx.sym.sum(ce)
-    # TODO(ZhouJ) test time in real environment
-    speed_f = open('speed.txt', 'r').readlines()
+    with open('speed_se.txt', 'r') as f:
+      speed_f = f.readlines()
     for l in range(len(self._m)):
       b_l_i = []
       speed_b_tmp = speed_f[l].strip().split(' ')
       for i in range(self._m_size[l]):
-        b_tmp = 2.0 * (0.9 ** l) * (1.1 ** i)
-        #b_tmp = float(speed_b_tmp[i])
+        #b_tmp = 2.0 * (0.9 ** l) * (1.1 ** i)
+        b_tmp = float(speed_b_tmp[i])
         b_l_i.append(b_tmp)
       self._b["b_%d" % l] = mx.nd.array(b_l_i)
       self._input_shapes["b_%d" % l] = (self._m_size[l], )
@@ -395,7 +395,7 @@ class FBNet_SE(object):
           if name not in self._input_shapes:
             self._aux_dict[i][name][:] = aux_params[name]
 
-        self._logger.info("Success load_model for biuildexe")
+        self._logger.info("Success load_model for build executor")
 
     self._no_update_params_name = set((self._data_name, self._label_name,
             "temperature"))
@@ -408,8 +408,21 @@ class FBNet_SE(object):
         break
       self._no_update_params_name.add(k[0])
 
-    return start_epoch
+    # Malloc for Multi-Card Gradient Memory
+    if self._avg_grad_dict is None:
+      self._avg_grad_dict = {}
+      self._ctx_idx_grad_dict = {}
 
+    avg_dict_size = [0] * len(self._ctxs)
+    for n, p in zip(self._arg_names, self._param_arrays[0]):
+      if not (n in self._no_update_params_name):
+        ctx_idx = np.argmin(avg_dict_size)
+        avg_dict_size[ctx_idx] += p.size
+        tmp_array = mx.nd.zeros(p.shape, self._ctxs[ctx_idx])
+        self._avg_grad_dict[n] = tmp_array
+        self._ctx_idx_grad_dict[n] = ctx_idx
+
+    return start_epoch
 
   def forward_backward(self, data, label, temperature=5.0):
     data_slice = []
@@ -457,25 +470,19 @@ class FBNet_SE(object):
       name = self._arg_names[i]
       if (not self._theta_unique_name in name) and \
         (not name in self._no_update_params_name):
-        for idx in range(len_ctx):
+        ctx_idx = self._ctx_idx_grad_dict[name]
+        for idx_ in range(ctx_idx, len_ctx + ctx_idx):
+          idx = idx_ % len_ctx
           weight = self._param_arrays[idx][i]
-          if idx == 0:
-            z = mx.nd.ones(weight.shape, weight.context)
+          if idx == ctx_idx:
+            z = self._avg_grad_dict[name]
             for tmp in self._grad_arrays:
               z = tmp[i].copyto(z)
               self._grad_arrays[idx][i] += z
             grad_ = self._grad_arrays[idx][i]
-            #grad_ = [tmp[i].as_in_context(mx.cpu()) for tmp in self._grad_arrays]
-            if len(grad_) > 1:
-              #grad_ = reduce(lambda x, y: x + y, grad_)
-              grad_ = grad_ / len_ctx
-            else:
-              grad_ = grad_[0]
-            grad = grad_
-          else:
-            grad = grad_.as_in_context(weight.context)
-
-          self._w_updater(i * len(self._ctxs) + idx, grad, weight)
+            grad_ = grad_ / len_ctx
+          grad = grad_.as_in_context(weight.context)
+          self._w_updater(i * len(self._ctxs) + idx_ - ctx_idx, grad, weight)
 
   def update_theta(self, data, label, temperature):
     """Update $\theta$.
@@ -487,25 +494,20 @@ class FBNet_SE(object):
       name = self._arg_names[i]
       if self._theta_unique_name in name and \
          (not name in self._no_update_params_name):
-        for idx in range(len_ctx):
+        ctx_idx = self._ctx_idx_grad_dict[name]
+        for idx_ in range(ctx_idx, len_ctx + ctx_idx):
+          idx = idx_ % len_ctx
           weight = self._param_arrays[idx][i]
-          if idx == 0:
-            z = mx.nd.ones(weight.shape, weight.context)
+          if idx == ctx_idx:
+            z = self._avg_grad_dict[name]
             for tmp in self._grad_arrays:
               z = tmp[i].copyto(z)
               self._grad_arrays[idx][i] += z
             grad_ = self._grad_arrays[idx][i]
+            grad_ = grad_ / len_ctx
 
-            # grad_ = [tmp[i].as_in_context(mx.cpu()) for tmp in self._grad_arrays]
-            if len(grad_) > 1:
-              #grad_ = reduce(lambda x, y: x + y, grad_)
-              grad_ = grad_ / len_ctx
-            else:
-              grad_ = grad_[0]
-            grad = grad_.as_in_context(weight.context)
-          else:
-            grad = grad_.as_in_context(weight.context)
-          self._theta_updater(i * len(self._ctxs) + idx, grad, weight)
+          grad = grad_.as_in_context(weight.context)
+          self._w_updater(i * len(self._ctxs) + idx_ - ctx_idx, grad, weight)
 
   def _train(self, dataset, epochs, updater_func, start_epoch=0):
     assert isinstance(dataset, mx.io.DataIter)
@@ -567,7 +569,6 @@ class FBNet_SE(object):
             os.mkdir(self._save_model_path)
 
           # Symbol.save  json_file
-
           json_name = os.path.join(self._save_model_path,'checkpoint-{}-symbol.json').format(self._model_type)
           self._loss.save(json_name)
 
@@ -647,14 +648,16 @@ class FBNet_SE(object):
 
       if '.params' in self._load_model_path:
         load_param_dict = mx.nd.load(self._load_model_path)
+        model_file = self._load_model_path
         epoch = self._load_model_path.split('_')[-2]
       else:
         model_list = glob.glob(self._load_model_path+'/*.params')
         model_list.sort()
+        model_file = model_list[-1]
         epoch = model_list[-1].split('_')[-2]
         load_param_dict = mx.nd.load(model_list[-1])
 
-      self._logger.info("load_model: %s  epoch[%s]"%(model_list[-1],epoch))
+      self._logger.info("load_model: %s  epoch[%s]"%(model_file,epoch))
       arg_params = {}
       aux_params = {}
       for k,v in load_param_dict.items():
@@ -692,17 +695,23 @@ class FBNet_SE(object):
 
     self.init_optimizer(lr_decay_step=lr_decay_step,
                         cosine_decay_step=cosine_decay_step)
-
-    if start_epoch <= start_w_epochs - 1:
-      self.train_w_a(w_s_ds, start_w_epochs - 1,
+    
+    
+    w_epochs = int(start_w_epochs - start_epoch -1 )
+    if w_epochs > 0:
+      self.train_w_a(w_s_ds, epochs = w_epochs,
                      start_epoch=start_epoch, temperature=init_temperature)
+      temperature = init_temperature               
     else:
-      temperature = init_temperature * pow(temperature_annel, int(start_epoch - start_w_epochs - 1))
-      for epoch in range(start_epoch, epochs):
-        self.train_w_a(w_s_ds, epochs=1, start_epoch=epoch,
+      temperature = init_temperature * pow(temperature_annel, -1*w_epochs)
+    
+    start_epoch = max(start_w_epochs -1,start_epoch)
+
+    for epoch in range(start_epoch, epochs):
+      self.train_w_a(w_s_ds, epochs=1, start_epoch=epoch,
                        temperature=temperature)
-        self.train_theta(theta_ds, epochs=1, start_epoch=epoch,
+      self.train_theta(theta_ds, epochs=1, start_epoch=epoch,
                          temperature=temperature)
-        self.get_theta(save_path="./theta-result/%sepoch_%d_theta.txt" %
+      self.get_theta(save_path="./theta-result/%sepoch_%d_theta.txt" %
                                  (result_prefix, epoch))
-        temperature *= temperature_annel
+      temperature *= temperature_annel

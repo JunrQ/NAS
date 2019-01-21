@@ -5,7 +5,7 @@ import sys
 import logging
 from time import gmtime, strftime
 # mxnet
-sys.path.insert(0, '/home/zhouchangqing/mxnet/incubator-mxnet_12_20/python')
+sys.path.insert(0, '/home/zhouchangqing/mxnet/incubator-mxnet_12_26/python')
 import mxnet as mx
 import numpy as np
 import math
@@ -91,7 +91,14 @@ _k = [3, 3, 3, 3,
 _g = [1, 1, 2, 2,
       1, 1, 2, 2]
 
-def speed_test_se(input_shape, s_size, num_filter, dim_match = False,shape= False,ctx = mx.gpu(1)):
+_n = [3,4,6,3]
+_f = [256, 512, 1024, 2048]
+_bottle_neck = [1,1,0,0,0]
+_se =  [0, 0, 0, 1, 0]
+_k =   [3, 3, 3, 3, 3]
+_g =   [1, 2, 1, 1, 2]
+
+def speed_test_se(input_shape, stride, num_filter, dim_match = False,deform_conv= False,ctx = mx.gpu(1)):
 
   data = mx.sym.var('data')
   block_list = []
@@ -103,22 +110,20 @@ def speed_test_se(input_shape, s_size, num_filter, dim_match = False,shape= Fals
 
     group = _g[block_idx]
     se = _se[block_idx]
-    stride = s_size
+    stride = stride
 
     prefix = "block_%d" % block_idx
-    type = 'bottle_neck' if block_idx<=3 else 'resnet'
-    dim_match = False
-
+    type = 'bottle_neck' if block_idx<=1 else 'resnet'
+    
     block_out = block_factory_se(input_symbol=data, name=prefix, num_filter=num_filter, group=group, stride=stride,
                                  se=se, k_size=kernel_size, type=type,dim_match=dim_match)
-
 
     block_out = mx.sym.expand_dims(block_out, axis=1)
     block_list.append(block_out)
     group_list.append(group)
     se_list.append(se)
 
-  if shape:  # skip part
+  if deform_conv:  # deform_conv
     prefix = "block_deformable_2"
     block_out = block_factory_se(input_symbol=data, name=prefix, num_filter=num_filter, group=1,
                                  stride=1,se=0, k_size=3, type='deform_conv',dim_match=dim_match)
@@ -171,6 +176,16 @@ if __name__ == '__main__':
   # speed_test((184, 7, 7), 1, 184) # 3 layertrue
   #speed_test((184, 7, 7), 1, 352)
   
-  speed_test_se((16, 108, 108),1, 256,shape = True)
-  speed_test_se((256, 54, 54),1, 512,shape = True)
+  # speed_test_se((64, 54, 54),stride=1, num_filter=256,dim_match = False,deform_conv = False) 
+  # speed_test_se((256, 54, 54),stride=1, num_filter=256,dim_match = True,deform_conv = False) # 2 layer
+  
+  # speed_test_se((256, 54, 54),stride=2, num_filter=512,dim_match = False,deform_conv = False)
+  # speed_test_se((512, 27, 27),stride=1, num_filter=512,dim_match = True,deform_conv = False) # 3 layer
+  
+  # speed_test_se((512, 27, 27),stride=2, num_filter=1024,dim_match = False,deform_conv = False)
+  # speed_test_se((1024, 14, 14),stride=1, num_filter=1024,dim_match = True,deform_conv = False)  # 5 layer
+# 
+  # speed_test_se((1024, 14, 14),stride=2, num_filter=2048,dim_match = False,deform_conv = False) 
+  speed_test_se((2048, 7, 7),stride=1, num_filter=2048,dim_match = True,deform_conv = True)  # 2 layer
+  
   #speed_test_se((256, 54, 54),2, 512,dim_match = False,shape = True)

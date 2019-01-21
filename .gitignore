@@ -2,7 +2,7 @@
 *out
 .vscode/*
 *.gz
-/fbnet/fbnet-symbol/log/
-/fbnet/fbnet-symbol/data/
-.ideal/
-fbnet/fbnet-symbol/model/
+/fbnet/log/
+/fbnet/data/
+.idea/
+fbnet/model/
