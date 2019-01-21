@@ -8,7 +8,7 @@ def sample_fbnet(theta_path, feature_dim=192, data=None, prefix='fbnet'):
     if len(prefix) > 0:
         prefix += '_'
     if data is None:
-        data = mx.symbol.Variable(name=prefix+"data")
+        data = mx.symbol.Variable(name="data")
     with open(theta_path, 'r') as f:
         lines = f.readlines()
     tbs_idx = 0
@@ -100,25 +100,25 @@ def sample_fbnet_se(theta_path, feature_dim=192, data=None, prefix='fbnet'):
   if len(prefix) > 0:
     prefix += '_'
   if data is None:
-    data = mx.symbol.Variable(name=prefix+"data")
+    data = mx.symbol.Variable(name="data")
   with open(theta_path, 'r') as f:
     lines = f.readlines()
   
   _unistage = 4
   tbs_idx = 0
 
-  _n = [3,4,6,3]
+  _n = [3, 4, 6, 3]
   _f = [64, 256, 512, 1024, 2048]
-  _bottle_neck = [1,1,0,0,0]
+  _bottle_neck = [1, 1, 0, 0, 0]
   _se =    [0, 0, 0, 1, 0]
   _kernel =[3, 3, 3, 3, 3]
   _group = [1, 2, 1, 1, 2]
 
   _block_size = len(_group)
 
-  data = mx.sym.BatchNorm(data=data, fix_gamma=False, eps=2e-5, 
-            momentum=0.9, name=prefix+'bn0')
-  data = mx.sym.Convolution(data=data, num_filter=_f[0], kernel=(7, 7), stride=(2, 2), 
+  # data = mx.sym.BatchNorm(data=data, fix_gamma=False, eps=2e-5, 
+  #             momentum=0.9, name=prefix+'bn0')
+  data = mx.sym.Convolution(data=data, num_filter=_f[0], kernel=(3, 3), stride=(1, 1), 
             pad=(3, 3),no_bias=True, name=prefix+"conv0")
   data = mx.sym.BatchNorm(data=data, fix_gamma=False, eps=2e-5, 
             momentum=0.9, name=prefix+'bn1')
