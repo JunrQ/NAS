@@ -703,9 +703,9 @@ class FBNet_SE(object):
                      start_epoch=start_epoch, temperature=init_temperature)
       temperature = init_temperature               
     else:
-      temperature = init_temperature * pow(temperature_annel, -1*w_epochs)
+      temperature = init_temperature * pow(temperature_annel, -1 * w_epochs)
     
-    start_epoch = max(start_w_epochs -1,start_epoch)
+    start_epoch = max(start_w_epochs - 1, start_epoch)
 
     for epoch in range(start_epoch, epochs):
       self.train_w_a(w_s_ds, epochs=1, start_epoch=epoch,
