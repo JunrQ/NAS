@@ -21,6 +21,7 @@ class Config(object):
   wd_arch = 1e-3
   resource_constraint_weight = 1e-8
   cutout = True
+  save_arch_frequence = 5
   if cutout:
     cutout_length = 16
 
