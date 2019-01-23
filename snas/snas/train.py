@@ -13,10 +13,9 @@ import logging
 import argparse
 
 from snas import Network
-from utils import Config as config, _set_file, _logger, architect_dist, \
+from utils import Config as config, _set_file, _logger, \
     loss as soft_loss, credit
 import utils
-from data_parallel import DataParallel
 
 logging.basicConfig(level=logging.INFO)
 
@@ -69,31 +68,31 @@ cfg = config()
 CIFAR_CLASSES = 10
 criterion = nn.CrossEntropyLoss().cuda()
 model = Network(cfg.init_channels, CIFAR_CLASSES, cfg.layers, criterion)
-if len(ctxs) > 1:
-  dp_model = DataParallel(model, device_ids=ctxs)
-else:
-  dp_model = model
 
 optimizer_model = torch.optim.SGD(model.model_parameters(), 
     lr=cfg.lr_model, momentum=0.9, weight_decay=cfg.wd_model)
-if len(ctxs) > 1:
-  optimizer_arch = torch.optim.Adam(model.arch_parameters(), 
-      lr=cfg.lr_arch, betas=(0.5, 0.999), weight_decay=cfg.wd_arch)
+optimizer_arch = torch.optim.Adam(model.arch_parameters(), 
+    lr=cfg.lr_arch, betas=(0.5, 0.999), weight_decay=cfg.wd_arch)
+
+model.cuda()
+# if len(ctxs) > 1:
+model = torch.nn.DataParallel(model, device_ids=ctxs)
 
 train_transform, valid_transform = utils._data_transforms_cifar10(cfg)
-train_data = dset.CIFAR10(root='../', train=True, download=True, transform=train_transform)
+train_data = dset.CIFAR10(root='../', train=True, 
+                download=True, transform=train_transform)
 
 num_train = len(train_data)
 indices = list(range(num_train))
 split = int(np.floor(cfg.train_portion * num_train))
 
 train_queue = torch.utils.data.DataLoader(
-  train_data, batch_size=12,
+  train_data, batch_size=args.batch_size,
   sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[:5000]),
-  pin_memory=True, num_workers=2)
+  pin_memory=True, num_workers=4)
 
 valid_queue = torch.utils.data.DataLoader(
-  train_data, batch_size=12,
+  train_data, batch_size=args.batch_size,
   sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[10000:15000]),
   pin_memory=True, num_workers=4)
 
@@ -105,12 +104,16 @@ def train(train_queue, valid_queue, model, criterion, optimizer_arch,
   policy  = utils.AvgrageMeter()
   top1 = utils.AvgrageMeter()
   top5 = utils.AvgrageMeter()
+  # criterion = criterion.cuda()
   for step, (input, target) in tqdm.tqdm(enumerate(train_queue)):
     model.train()
     n = input.size(0)
 
-    input = Variable(input, requires_grad=True).cuda()
-    target = Variable(target, requires_grad=False).cuda(async=True)
+    # input = Variable(input, requires_grad=True).cuda()
+    input = input.cuda()#.to(torch.device("cuda:1"))
+    # print(input)
+    # target = Variable(target, requires_grad=False).cuda(async=True)
+    target = target.cuda()
     
     input_search, target_search = next(iter(valid_queue))
     input_search = Variable(input_search , requires_grad=True).cuda()
@@ -120,13 +123,14 @@ def train(train_queue, valid_queue, model, criterion, optimizer_arch,
 
     optimizer_arch.zero_grad()
     optimizer_model.zero_grad()
-    logit, _, cost= model(input , temperature)
+    logit, _, cost = model(input , temperature)
     _, score_function, _ = model(input_search , temperature)
     
     policy_loss = torch.sum(score_function * credit(model, input_search, 
-                                      target_search, temperature).float())
-    value_loss = criterion(logit , target) 
-    total_loss = policy_loss + value_loss + cost*(1e-9)
+                                target_search, temperature, criterion).float())
+    value_loss = criterion(logit , target)
+    resource_constraint = torch.sum(cost)
+    total_loss = policy_loss + value_loss + resource_constraint*cfg.resource_constraint_weight
     total_loss.backward()
     nn.utils.clip_grad_norm(model.parameters(), cfg.clip_gradient)
     optimizer_arch.step()
@@ -138,7 +142,6 @@ def train(train_queue, valid_queue, model, criterion, optimizer_arch,
     top1.update(prec1.data , n)
     top5.update(prec5.data , n)
     return top1.avg, top5.avg, objs.avg, policy.avg
-
 
 def infer(valid_queue, model, criterion):
   objs = utils.AvgrageMeter()
@@ -159,9 +162,8 @@ def infer(valid_queue, model, criterion):
     top1.update(prec1.data , n)
     top5.update(prec5.data , n)
   return top1.avg, top5.avg ,objs.avg
- 
 
-for epoch in range(cfg.epochs):
+for epoch in range(args.epochs):
   # training
   train_acc_top1, train_acc_top5 ,train_valoss, train_poloss = train(train_queue, 
         valid_queue, model, criterion, optimizer_arch, 
@@ -173,10 +175,10 @@ for epoch in range(cfg.epochs):
   f.write("%5.5f  " % train_acc_top1)
   f.write("%5.5f  " % train_acc_top5)
   f.write("%5.5f  " % train_valoss)
-  f.write("%5.5f  " % train_poloss ) 
-  f.write("%5.5f  " % valid_acc_top1 ) 
-  f.write("%5.5f  " % valid_acc_top5 ) 
-  f.write("%5.5f  " % valid_valoss ) 
+  f.write("%5.5f  " % train_poloss) 
+  f.write("%5.5f  " % valid_acc_top1) 
+  f.write("%5.5f  " % valid_acc_top5) 
+  f.write("%5.5f  " % valid_valoss) 
   f.write("\n")
 
   if epoch % 5 ==0:

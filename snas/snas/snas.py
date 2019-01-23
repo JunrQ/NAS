@@ -65,11 +65,13 @@ class MixedOp(nn.Module):
         MAC = 0
       self._ops.append(op)
       self.COSTS.append(FLOP + ratio * MAC)
+    
+    # TODO(ZhouJ) This may lack flexibility
+    self.cost = torch.tensor(sum(a for a in self.COSTS), requires_grad=False)
 
   def forward(self, x, Z):
     output = sum(z * op(x) for z, op in zip(Z, self._ops))
-    cost = sum(a for a in self.COSTS)
-    return output, cost
+    return output, self.cost
 
 
 class Cell(nn.Module):
@@ -116,8 +118,9 @@ class Cell(nn.Module):
       offset += len(states)
       states.append(s)
       costs.append(cost)
-    return torch.cat(states[-self._multiplier:], dim=1), \
-           torch.sum(torch.tensor(costs[-self._multiplier:]))
+    state = torch.cat(states[-self._multiplier:], dim=1)
+    cost_ = torch.sum(torch.tensor(costs[-self._multiplier:])).to(state.device)
+    return state, cost_
 
 class Network(nn.Module):
   def __init__(self, C, num_classes, layers, criterion, 
@@ -158,6 +161,7 @@ class Network(nn.Module):
         C_curr *= 2
         reduction = True
         h, w = [int(math.ceil(1.0 * x / 2)) for x in [h, w]]
+        assert h > 3 or w > 3
       else:
         reduction = False 
       cell = Cell(steps, multiplier, C_prev_prev, C_prev, C_curr, 
@@ -176,15 +180,25 @@ class Network(nn.Module):
     costs = 0
     for i, cell in enumerate(self.cells):
       if cell.reduction:
-        Z, score_function = self.ArchitectDist(self.alphas_reduce , temperature)
+        Z, score_function = self.architect_dist(self.alphas_reduce , 
+                                  temperature, s0.device)
       else:
-        Z, score_function = self.ArchitectDist(self.alphas_normal , temperature)
-      s2 ,cost = cell(s0,s1,Z)
-      s0, s1 = s1 ,s2
+        Z, score_function = self.architect_dist(self.alphas_normal , 
+                                  temperature, s0.device)
+      s2, cost = cell(s0, s1, Z)
+      s0, s1 = s1, s2
       costs += cost
     out = self.global_pooling(s1) 
     logits = self.classifier(out.view(out.size(0),-1))
     return logits, score_function, costs
+  
+  def architect_dist(self, alpha, temperature, device):
+    """Given temperature return a relaxed one hot.
+    """
+    m = torch.distributions.relaxed_categorical.RelaxedOneHotCategorical(
+            torch.tensor([temperature]).to(device) , alpha)
+    r1, r2 = m.sample(), -m.log_prob(m.sample())
+    return r1, r2
 
   def _initialize_alphas(self):
     k = sum(1 for i in range(self._steps) for n in range(2+i))

@@ -10,22 +10,19 @@ import sys
 class Config(object):
   init_channels = 64
   layers = 18
-  train_portion = 0.8
-  initial_temp = 0.956
-  anneal_rate = 0.9
+  train_portion = 0.7
+  initial_temp = 2.5
+  anneal_rate = 0.00003
   epochs = 60
   clip_gradient = 5.0
   lr_arch = 3e-4
   lr_model = 0.02
-  wd_model = 4e-5
-  wd_arch = 3e-4
-
-def architect_dist(model, alpha, temperature):
-  """Given temperature return a relaxed one hot.
-  """
-  m = torch.distributions.relaxed_categorical.RelaxedOneHotCategorical(
-          torch.tensor([temperature]).cuda() , alpha)
-  return m.sample() , -m.log_prob(m.sample())
+  wd_model = 3e-4
+  wd_arch = 1e-3
+  resource_constraint_weight = 1e-8
+  cutout = True
+  if cutout:
+    cutout_length = 16
 
 def loss(model, input, target, temperature, criterion):
   """Given input, lable, temperature and criterion return loss.
