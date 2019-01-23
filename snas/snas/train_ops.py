@@ -64,11 +64,11 @@ def train(train_queue, valid_queue, model, criterion, optimizer_arch,
         if data_size > 0:
           logger.info("[Step] %d/%d [loss] %.6f [acc] %.4f" % (step, data_size, 
                           value_loss.detach().cpu().numpy(), \
-                          prec1.detach().cpu().numpy()))
+                          prec1.detach().cpu().numpy() / 100.0))
         else:
           logger.info("[Step] %d [loss] %.6f [acc] %.4f" % (step, 
                           value_loss.detach().cpu().numpy(), 
-                          prec1.detach().cpu().numpy()))
+                          prec1.detach().cpu().numpy() / 100.0))
 
   return top1.avg, top5.avg, objs.avg, policy.avg
 
@@ -98,9 +98,9 @@ def infer(valid_queue, model, criterion, cfg, logger=None, data_size=-1,
         if data_size > 0:
           logger.info("[Step] %d/%d [loss] %.6f [acc] %.4f" % (step, data_size, 
                           loss.detach().cpu().numpy(),
-                          prec1.detach().cpu().numpy()))
+                          prec1.detach().cpu().numpy() / 100.0))
         else:
           logger.info("[Step] %d [loss] %.6f [acc] %.4f" % (step, 
                           loss.detach().cpu().numpy(),
-                          prec1.detach().cpu().numpy()))
+                          prec1.detach().cpu().numpy() / 100.0))
   return top1.avg, top5.avg, objs.avg
