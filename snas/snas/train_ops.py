@@ -16,7 +16,7 @@ from utils import *
 
 def train(train_queue, valid_queue, model, criterion, optimizer_arch, 
           optimizer_model, lr_arch, lr_model, cfg, logger=None, 
-          data_size=-1, log_frequence=50):
+          batch_num=-1, log_frequence=50):
   objs = utils.AvgrageMeter()
   policy  = utils.AvgrageMeter()
   top1 = utils.AvgrageMeter()
@@ -61,8 +61,8 @@ def train(train_queue, valid_queue, model, criterion, optimizer_arch,
 
     if logger is not None:
       if step > 0 and step % log_frequence == 0:
-        if data_size > 0:
-          logger.info("[Step] %d/%d [loss] %.6f [acc] %.4f" % (step, data_size, 
+        if batch_num > 0:
+          logger.info("[Step] %d/%d [loss] %.6f [acc] %.4f" % (step, batch_num, 
                           value_loss.detach().cpu().numpy(), \
                           prec1.detach().cpu().numpy() / 100.0))
         else:
@@ -72,7 +72,7 @@ def train(train_queue, valid_queue, model, criterion, optimizer_arch,
 
   return top1.avg, top5.avg, objs.avg, policy.avg
 
-def infer(valid_queue, model, criterion, cfg, logger=None, data_size=-1,
+def infer(valid_queue, model, criterion, cfg, logger=None, batch_num=-1,
           log_frequence=10):
   objs = utils.AvgrageMeter()
   top1 = utils.AvgrageMeter()
@@ -95,8 +95,8 @@ def infer(valid_queue, model, criterion, cfg, logger=None, data_size=-1,
     top5.update(prec5.data , n)
     if logger is not None:
       if step > 0 and step % log_frequence == 0:
-        if data_size > 0:
-          logger.info("[Step] %d/%d [loss] %.6f [acc] %.4f" % (step, data_size, 
+        if batch_num > 0:
+          logger.info("[Step] %d/%d [loss] %.6f [acc] %.4f" % (step, batch_num, 
                           loss.detach().cpu().numpy(),
                           prec1.detach().cpu().numpy() / 100.0))
         else:
