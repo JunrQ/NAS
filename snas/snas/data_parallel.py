@@ -154,7 +154,7 @@ class DataParallel(Module):
 
     def gather(self, outputs, output_device):
         return gather(outputs, output_device, dim=self.dim)
-
+    
 
 def data_parallel(module, inputs, device_ids=None, output_device=None, dim=0, module_kwargs=None):
     r"""Evaluates module(input) in parallel across the GPUs given in device_ids.

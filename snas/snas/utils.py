@@ -17,7 +17,31 @@ class Config(object):
   clip_gradient = 5.0
   lr_arch = 3e-4
   lr_model = 0.02
-  
+  wd_model = 4e-5
+  wd_arch = 3e-4
+
+def architect_dist(model, alpha, temperature):
+  """Given temperature return a relaxed one hot.
+  """
+  m = torch.distributions.relaxed_categorical.RelaxedOneHotCategorical(
+          torch.tensor([temperature]).cuda() , alpha)
+  return m.sample() , -m.log_prob(m.sample())
+
+def loss(model, input, target, temperature, criterion):
+  """Given input, lable, temperature and criterion return loss.
+  """
+  logits, _, _ = model(input, temperature)
+  return criterion(logits, target) 
+
+def credit(model, input, target, temperature, criterion):
+  """Credits SNAS search gradients assign to each structural decision.
+  """
+  loss_ = loss(model, input, target, temperature, criterion)
+  dL = torch.autograd.grad(loss_, input)[0]
+  dL_dX = dL.view(-1)
+  X = input.view(-1)
+  credit = torch.dot(dL_dX.double() , X.double())
+  return credit
 
 class AvgrageMeter(object):
 

@@ -13,8 +13,10 @@ import logging
 import argparse
 
 from snas import Network
-from utils import Config as config, _set_file, _logger
+from utils import Config as config, _set_file, _logger, architect_dist, \
+    loss as soft_loss, credit
 import utils
+from data_parallel import DataParallel
 
 logging.basicConfig(level=logging.INFO)
 
@@ -68,13 +70,15 @@ CIFAR_CLASSES = 10
 criterion = nn.CrossEntropyLoss().cuda()
 model = Network(cfg.init_channels, CIFAR_CLASSES, cfg.layers, criterion)
 if len(ctxs) > 1:
-  dp_model = nn.DataParallel(model, device_ids=ctxs)
+  dp_model = DataParallel(model, device_ids=ctxs)
 else:
   dp_model = model
 
-optimizer_model = torch.optim.SGD(dp_model.parameters(), lr=0.025, momentum=0.9, weight_decay=3e-4)
+optimizer_model = torch.optim.SGD(model.model_parameters(), 
+    lr=cfg.lr_model, momentum=0.9, weight_decay=cfg.wd_model)
 if len(ctxs) > 1:
-  optimizer_arch = torch.optim.Adam(model.arch_parameters(), lr=3e-4, betas=(0.5, 0.999), weight_decay=1e-3)
+  optimizer_arch = torch.optim.Adam(model.arch_parameters(), 
+      lr=cfg.lr_arch, betas=(0.5, 0.999), weight_decay=cfg.wd_arch)
 
 train_transform, valid_transform = utils._data_transforms_cifar10(cfg)
 train_data = dset.CIFAR10(root='../', train=True, download=True, transform=train_transform)
@@ -96,32 +100,31 @@ valid_queue = torch.utils.data.DataLoader(
 f = open("loss.txt", "w")
 
 def train(train_queue, valid_queue, model, criterion, optimizer_arch, 
-          optimizer_model, lr_arch, lr_model, dp_model=None):
+          optimizer_model, lr_arch, lr_model):
   objs = utils.AvgrageMeter()
   policy  = utils.AvgrageMeter()
   top1 = utils.AvgrageMeter()
   top5 = utils.AvgrageMeter()
-  if dp_model is None:
-    dp_model = model
   for step, (input, target) in tqdm.tqdm(enumerate(train_queue)):
-    dp_model.train()
+    model.train()
     n = input.size(0)
 
-    input = Variable(input , requires_grad=True).cuda()
+    input = Variable(input, requires_grad=True).cuda()
     target = Variable(target, requires_grad=False).cuda(async=True)
     
     input_search, target_search = next(iter(valid_queue))
-    input_search = Variable(input_search , requires_grad = True ).cuda()
+    input_search = Variable(input_search , requires_grad=True).cuda()
     target_search = Variable(target_search, requires_grad=False).cuda(async=True)
     
     temperature = cfg.initial_temp * np.exp(-cfg.anneal_rate * step)
 
     optimizer_arch.zero_grad()
     optimizer_model.zero_grad()
-    logit, _, cost= dp_model(input , temperature)
-    _, score_function, _= dp_model(input_search , temperature)
+    logit, _, cost= model(input , temperature)
+    _, score_function, _ = model(input_search , temperature)
     
-    policy_loss = torch.sum(score_function * model.Credit(input_search,target_search,temperature).float())
+    policy_loss = torch.sum(score_function * credit(model, input_search, 
+                                      target_search, temperature).float())
     value_loss = criterion(logit , target) 
     total_loss = policy_loss + value_loss + cost*(1e-9)
     total_loss.backward()
@@ -131,7 +134,7 @@ def train(train_queue, valid_queue, model, criterion, optimizer_arch,
 
     prec1, prec5 = utils.accuracy(logit, target, topk=(1, 5))
     objs.update(value_loss.data, n)
-    policy.update(policy_loss.data , n)
+    policy.update(policy_loss.data, n)
     top1.update(prec1.data , n)
     top5.update(prec5.data , n)
     return top1.avg, top5.avg, objs.avg, policy.avg
@@ -148,26 +151,24 @@ def infer(valid_queue, model, criterion):
     target = Variable(target, volatile=True).cuda(async=True)
 
     temperature = cfg.initial_temp * np.exp(-cfg.anneal_rate * step)
-    logits , _ , cost = model(input , temperature)
+    logits , _, cost = model(input , temperature)
     loss = criterion(logits, target)
     prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
     n = input.size(0)
     objs.update(loss.data , n)
     top1.update(prec1.data , n)
     top5.update(prec5.data , n)
-
   return top1.avg, top5.avg ,objs.avg
  
 
 for epoch in range(cfg.epochs):
-
   # training
-  train_acc_top1, train_acc_top5 , train_valoss,train_poloss = train(train_queue, 
-        valid_queue, model,criterion, optimizer_arch, optimizer_model, cfg.lr_arch, cfg.lr_model)
+  train_acc_top1, train_acc_top5 ,train_valoss, train_poloss = train(train_queue, 
+        valid_queue, model, criterion, optimizer_arch, 
+        optimizer_model, cfg.lr_arch, cfg.lr_model)
 
   # validation
-  valid_acc_top1,valid_acc_top5, valid_valoss = infer(valid_queue, model, criterion)
-
+  valid_acc_top1, valid_acc_top5, valid_valoss = infer(valid_queue, model, criterion)
 
   f.write("%5.5f  " % train_acc_top1)
   f.write("%5.5f  " % train_acc_top5)
@@ -179,12 +180,12 @@ for epoch in range(cfg.epochs):
   f.write("\n")
 
   if epoch % 5 ==0:
-    np.save("alpha_normal_" + str(epoch) + ".npy"  , model.alphas_normal.detach().cpu().numpy())
-    np.save("alpha_reduce_" + str(epoch) + ".npy"  , model.alphas_reduce.detach().cpu().numpy())
+    np.save("alpha_normal_" + str(epoch) + ".npy", model.alphas_normal.detach().cpu().numpy())
+    np.save("alpha_reduce_" + str(epoch) + ".npy", model.alphas_reduce.detach().cpu().numpy())
 
-
-  print("epoch : " , epoch , "Train_Acc : " , train_acc_top1 , "Train_value_loss : ",train_valoss,"Train_policy : " , train_poloss )
+  print("epoch : ", epoch ,"Train_Acc : ", train_acc_top1, "Train_value_loss : ", 
+        train_valoss, "Train_policy : ", train_poloss )
   print('\n')
-  print("epoch : " , epoch , "Val_Acc : " , valid_acc_top1 , "Val_value_loss : ",valid_valoss)
-  torch.save(model.state_dict(),'weights.pt')
+  print("epoch : ", epoch , "Val_Acc : ", valid_acc_top1, "Val_value_loss : ", valid_valoss)
+  torch.save(model.state_dict(), 'weights.pt')
 f.close()

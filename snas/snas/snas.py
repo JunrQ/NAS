@@ -96,7 +96,8 @@ class Cell(nn.Module):
 
     self._ops = nn.ModuleList()
     self._bns = nn.ModuleList()
-    for i in range(self._steps): # steps is set to 4, which is number of the intermediate nodes
+    # steps is set to 4, which is number of the intermediate nodes
+    for i in range(self._steps):
       for j in range(2 + i):
         stride = 2 if reduction and j < 2 else 1
         op  = MixedOp(C, stride, h, w)
@@ -115,7 +116,8 @@ class Cell(nn.Module):
       offset += len(states)
       states.append(s)
       costs.append(cost)
-    return torch.cat(states[-self._multiplier:], dim=1), torch.sum(torch.tensor(costs[-self._multiplier:]))
+    return torch.cat(states[-self._multiplier:], dim=1), \
+           torch.sum(torch.tensor(costs[-self._multiplier:]))
 
 class Network(nn.Module):
   def __init__(self, C, num_classes, layers, criterion, 
@@ -158,8 +160,8 @@ class Network(nn.Module):
         h, w = [int(math.ceil(1.0 * x / 2)) for x in [h, w]]
       else:
         reduction = False 
-      cell = Cell(steps, multiplier, C_prev_prev, C_prev, C_curr, reduction, reduction_prev,
-                  h, w)
+      cell = Cell(steps, multiplier, C_prev_prev, C_prev, C_curr, 
+                  reduction, reduction_prev, h, w)
       reduction_prev = reduction
       self.cells += [cell]
       C_prev_prev, C_prev = C_prev, multiplier * C_curr
@@ -182,14 +184,16 @@ class Network(nn.Module):
       costs += cost
     out = self.global_pooling(s1) 
     logits = self.classifier(out.view(out.size(0),-1))
-    return logits , score_function ,costs
+    return logits, score_function, costs
 
   def _initialize_alphas(self):
     k = sum(1 for i in range(self._steps) for n in range(2+i))
     num_ops = len(PRIMITIVES)
 
-    self.alphas_normal = Variable(1e-3 * torch.randn(k, num_ops).cuda(), requires_grad=True)
-    self.alphas_reduce = Variable(1e-3 * torch.randn(k, num_ops).cuda(), requires_grad=True)
+    self.alphas_normal = torch.nn.Parameter(1e-3 * torch.randn(k, num_ops).cuda(), 
+        requires_grad=True)
+    self.alphas_reduce = torch.nn.Parameter(1e-3 * torch.randn(k, num_ops).cuda(), 
+        requires_grad=True)
     self._arch_parameters = [
         self.alphas_normal,
         self.alphas_reduce,
@@ -197,22 +201,8 @@ class Network(nn.Module):
 
   def arch_parameters(self):
     return self._arch_parameters
-
-  def ArchitectDist(self,alpha,temperature):
-    m = torch.distributions.relaxed_categorical.RelaxedOneHotCategorical(
-            torch.tensor([temperature]).cuda() , alpha)
-    return m.sample() , -m.log_prob(m.sample())
-
-  def _loss(self, input,target,temperature):
-    logits, _ , _= self(input, temperature)
-    return self._criterion(logits, target) 
-
-  def credit(self,input,target,temperature):
-    """Credits SNAS search gradients assign to each structural decision.
-    """
-    loss = self._loss(input, target, temperature)
-    dL = torch.autograd.grad(loss,input)[0]
-    dL_dX = dL.view(-1)
-    X = input.view(-1)
-    credit = torch.dot(dL_dX.double() , X.double())
-    return credit
+  
+  def model_parameters(self):
+    # Thanks to Chuanhong Huang
+    params = self.named_parameters()
+    return [p for n, p in params if n not in ['alphas_nomal', 'alphas_reduce']]
