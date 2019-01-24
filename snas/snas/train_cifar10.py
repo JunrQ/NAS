@@ -94,17 +94,21 @@ valid_queue = torch.utils.data.DataLoader(
 # Training and evaluation
 #-----------------------------
 f = open("loss.txt", "w")
+temperature = cfg.initial_temp
 for epoch in range(args.epochs):
   # training
-  train_acc_top1, train_acc_top5 ,train_valoss, train_poloss = train(train_queue, 
-        valid_queue, model, criterion, optimizer_arch, 
-        optimizer_model, cfg.lr_arch, cfg.lr_model, cfg,
-        _logger, int(num_train * cfg.train_portion / args.batch_size), args.log_frequence)
+  train_acc_top1, train_acc_top5 ,train_valoss, train_poloss, temperature \
+      = train(train_queue, valid_queue, model, temperature, 
+              criterion, optimizer_arch, 
+              optimizer_model, cfg.lr_arch, cfg.lr_model, cfg,
+              _logger, int(num_train * cfg.train_portion / args.batch_size), 
+              args.log_frequence, anneal_frequence=cfg.anneal_frequence)
 
   # validation
   valid_acc_top1, valid_acc_top5, valid_valoss = infer(valid_queue, 
-        model, criterion, cfg, _logger, 
-        int(num_train * (1 - cfg.train_portion) / args.batch_size), args.log_frequence)
+        model, criterion, temperature, _logger, 
+        int(num_train * (1 - cfg.train_portion) / args.batch_size), 
+        args.log_frequence)
 
   f.write("%5.5f  " % train_acc_top1)
   f.write("%5.5f  " % train_acc_top5)

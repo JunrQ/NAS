@@ -14,9 +14,9 @@ import argparse
 import utils
 from utils import *
 
-def train(train_queue, valid_queue, model, criterion, optimizer_arch, 
-          optimizer_model, lr_arch, lr_model, cfg, logger=None, 
-          batch_num=-1, log_frequence=50):
+def train(train_queue, valid_queue, model, temperature, criterion,
+          optimizer_arch, optimizer_model, lr_arch, lr_model, cfg, logger=None, 
+          batch_num=-1, log_frequence=50, anneal_frequence=100):
   objs = utils.AvgrageMeter()
   policy  = utils.AvgrageMeter()
   top1 = utils.AvgrageMeter()
@@ -35,7 +35,9 @@ def train(train_queue, valid_queue, model, criterion, optimizer_arch,
     input_search = Variable(input_search , requires_grad=True).cuda()
     target_search = Variable(target_search, requires_grad=False).cuda(async=True)
     
-    temperature = cfg.initial_temp * np.exp(-cfg.anneal_rate * step)
+    # temperature = cfg.initial_temp * np.exp(-cfg.anneal_rate * step)
+    if step > 0 and (step % anneal_frequence == 0):
+      temperature *= -cfg.anneal_rate
 
     optimizer_arch.zero_grad()
     optimizer_model.zero_grad()
@@ -74,9 +76,9 @@ def train(train_queue, valid_queue, model, criterion, optimizer_arch,
                           prec1.detach().cpu().numpy() / 100.0))
         tic = time.time()
 
-  return top1.avg, top5.avg, objs.avg, policy.avg
+  return top1.avg, top5.avg, objs.avg, policy.avg, temperature
 
-def infer(valid_queue, model, criterion, cfg, logger=None, batch_num=-1,
+def infer(valid_queue, model, criterion, temperature, logger=None, batch_num=-1,
           log_frequence=10):
   objs = utils.AvgrageMeter()
   top1 = utils.AvgrageMeter()
@@ -89,7 +91,6 @@ def infer(valid_queue, model, criterion, cfg, logger=None, batch_num=-1,
     input = input.cuda()
     target = target.cuda()
 
-    temperature = cfg.initial_temp * np.exp(-cfg.anneal_rate * step)
     logits , _, _ = model(input , temperature)
     loss = criterion(logits, target)
     prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))

@@ -12,7 +12,7 @@ class Config(object):
   layers = 18
   train_portion = 0.7
   initial_temp = 2.5
-  anneal_rate = 0.99
+  anneal_rate = 0.96
   epochs = 100
   clip_gradient = 5.0
   lr_arch = 0.001
@@ -23,6 +23,7 @@ class Config(object):
   cutout = True
   save_arch_frequence = 5
   input_shape = (3, 32, 32)
+  anneal_frequence = 20
   if cutout:
     cutout_length = 16
 
