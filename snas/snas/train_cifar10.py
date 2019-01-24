@@ -59,7 +59,9 @@ ctxs = [int(i) for i in args.gpus.strip().split(",")]
 cfg = config()
 CIFAR_CLASSES = 10
 criterion = nn.CrossEntropyLoss().cuda()
-model = Network(cfg.init_channels, CIFAR_CLASSES, cfg.layers, criterion)
+model = Network(C=cfg.init_channels, num_classes=CIFAR_CLASSES, 
+                layers=cfg.layers, criterion=criterion,
+                shape=cfg.input_shape)
 
 optimizer_model = torch.optim.SGD(model.model_parameters(), 
     lr=cfg.lr_model, momentum=0.9, weight_decay=cfg.wd_model)

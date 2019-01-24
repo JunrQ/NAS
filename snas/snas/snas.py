@@ -95,6 +95,8 @@ class Cell(nn.Module):
     self.preprocess1 = ReLUConvBN(C_prev, C, 1, 1, 0, affine=False)
     self._steps = steps
     self._multiplier = multiplier
+    assert steps == multiplier, "Steps just means multiplier " + \
+                                "unless you want do extra calculation"
 
     self._ops = nn.ModuleList()
     self._bns = nn.ModuleList()
@@ -113,8 +115,9 @@ class Cell(nn.Module):
     costs = []
     offset = 0
     for _ in range(self._steps):
-      s = sum(self._ops[offset+j](h, Z[offset+j])[0] for j, h in enumerate(states))
-      cost = sum(self._ops[offset+j](h, Z[offset+j])[1] for j, h in enumerate(states))
+      output_ = [self._ops[offset+j](h, Z[offset+j]) for j, h in enumerate(states)]
+      s = sum([tmp[0] for tmp in output_])
+      cost = sum([tmp[1] for tmp in output_])
       offset += len(states)
       states.append(s)
       costs.append(cost)
@@ -130,12 +133,18 @@ class Network(nn.Module):
     Parameters
     ----------
     C : int
-
+      num_filters of first conv
     num_classes : int
-
+      number of classes of output
+    layers : int
+      number of layers
+    criterion
+    steps : int
+      block steps
+    multiplier : int
+      multiplier
     stem_multiplier : int
-
-
+      multiplier of first conv num_filter
     """
     super(Network,self).__init__()
 
@@ -146,6 +155,7 @@ class Network(nn.Module):
     self._steps = steps
     self._multiplier = multiplier
     h, w = shape[1], shape[2] # Just for calculating flop, mac
+    assert input_channels == shape[0]
 
     C_curr = stem_multiplier * C 
     self.stem = nn.Sequential(

@@ -12,16 +12,17 @@ class Config(object):
   layers = 18
   train_portion = 0.7
   initial_temp = 2.5
-  anneal_rate = 0.00003
-  epochs = 60
+  anneal_rate = 0.99
+  epochs = 100
   clip_gradient = 5.0
-  lr_arch = 3e-4
+  lr_arch = 0.001
   lr_model = 0.02
-  wd_model = 3e-4
-  wd_arch = 1e-3
+  wd_model = 5e-4
+  wd_arch = 1e-4
   resource_constraint_weight = 1e-8
   cutout = True
   save_arch_frequence = 5
+  input_shape = (3, 32, 32)
   if cutout:
     cutout_length = 16
 
