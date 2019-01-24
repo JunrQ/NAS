@@ -8,7 +8,7 @@ import socket
 import sys
 
 class Config(object):
-  init_channels = 64
+  init_channels = 16
   layers = 18
   train_portion = 0.7
   initial_temp = 2.5
