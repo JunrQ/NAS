@@ -24,6 +24,7 @@ def train(train_queue, valid_queue, model, criterion, optimizer_arch,
   # if logger is not None:
   #   logger.info("Start new epoch training")
   # criterion = criterion.cuda()
+  tic = time.time()
   for step, (input, target) in enumerate(train_queue):
     model.train()
     n = input.size(0)
@@ -61,14 +62,17 @@ def train(train_queue, valid_queue, model, criterion, optimizer_arch,
 
     if logger is not None:
       if step > 0 and step % log_frequence == 0:
+        toc = time.time()
+        speed = 1.0 * log_frequence * n / (toc - tic)
         if batch_num > 0:
-          logger.info("[Step] %d/%d [loss] %.6f [acc] %.4f" % (step, batch_num, 
-                          value_loss.detach().cpu().numpy(), \
+          logger.info("Step[%d/%d] speed[%.4f samples/s] loss[%.6f] acc[%.4f]" % (step, batch_num, 
+                          speed, value_loss.detach().cpu().numpy(), \
                           prec1.detach().cpu().numpy() / 100.0))
         else:
-          logger.info("[Step] %d [loss] %.6f [acc] %.4f" % (step, 
-                          value_loss.detach().cpu().numpy(), 
+          logger.info("Step[%d] speed[%.4f samples/s] loss[%.6f] acc[%.4f]" % (step, 
+                          speed, value_loss.detach().cpu().numpy(), \
                           prec1.detach().cpu().numpy() / 100.0))
+        tic = time.time()
 
   return top1.avg, top5.avg, objs.avg, policy.avg
 
@@ -80,6 +84,7 @@ def infer(valid_queue, model, criterion, cfg, logger=None, batch_num=-1,
   model.eval()
   # logger.info("Start new epoch inference")
 
+  tic = time.time()
   for step, (input, target) in enumerate(valid_queue):
     input = input.cuda()
     target = target.cuda()
@@ -95,12 +100,15 @@ def infer(valid_queue, model, criterion, cfg, logger=None, batch_num=-1,
     top5.update(prec5.data , n)
     if logger is not None:
       if step > 0 and step % log_frequence == 0:
+        toc = time.time()
+        speed = 1.0 * log_frequence * n / (toc - tic)
         if batch_num > 0:
-          logger.info("[Step] %d/%d [loss] %.6f [acc] %.4f" % (step, batch_num, 
-                          loss.detach().cpu().numpy(),
+          logger.info("Step[%d/%d] speed[%.4f samples/s] loss[%.6f] acc[%.4f]" % (step, batch_num, 
+                          speed, loss.detach().cpu().numpy(), \
                           prec1.detach().cpu().numpy() / 100.0))
         else:
-          logger.info("[Step] %d [loss] %.6f [acc] %.4f" % (step, 
-                          loss.detach().cpu().numpy(),
+          logger.info("Step[%d] speed[%.4f samples/s] loss[%.6f] acc[%.4f]" % (step, 
+                          speed, loss.detach().cpu().numpy(), \
                           prec1.detach().cpu().numpy() / 100.0))
+        tic = time.time()
   return top1.avg, top5.avg, objs.avg
