@@ -70,7 +70,7 @@ model.apply(weights_init)
 #     torch.nn.init.kaiming_uniform(k[1])
 
 mod_params = model.model_parameters()
-arch_params = model.model_parameters()
+arch_params = model.arch_parameters()
 
 optimizer_model = torch.optim.SGD(mod_params, 
     lr=cfg.lr_model, momentum=0.9, weight_decay=cfg.wd_model)
@@ -129,8 +129,8 @@ for epoch in range(args.epochs):
   f.write("\n")
 
   if epoch % cfg.save_arch_frequence ==0:
-    np.save("alpha_normal_" + str(epoch) + ".npy", mod_params.detach().cpu().numpy())
-    np.save("alpha_reduce_" + str(epoch) + ".npy", arch_params.detach().cpu().numpy())
+    np.save("alpha_normal_" + str(epoch) + ".npy", arch_params[0].detach().cpu().numpy())
+    np.save("alpha_reduce_" + str(epoch) + ".npy", arch_params[1].detach().cpu().numpy())
 
   msg = "[Epoch] %d [train acc] %.7f [val acc] %.7f" % (epoch, train_acc_top1, valid_acc_top1)
   torch.save(model.state_dict(), 'weights.pt')
