@@ -52,7 +52,7 @@ def train(train_queue, valid_queue, model, temperature, criterion,
     total_loss = policy_loss + value_loss + \
                  resource_constraint*cfg.resource_constraint_weight
     total_loss.backward()
-    nn.utils.clip_grad_norm(model.parameters(), cfg.clip_gradient)
+    nn.utils.clip_grad_norm_(model.parameters(), cfg.clip_gradient)
     optimizer_arch.step()
     optimizer_model.step()
 

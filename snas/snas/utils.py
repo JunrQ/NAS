@@ -12,20 +12,44 @@ class Config(object):
   layers = 18
   train_portion = 0.7
   initial_temp = 2.5
-  anneal_rate = 0.96
+  anneal_rate = 0.99
   epochs = 100
-  clip_gradient = 5.0
+  clip_gradient = 2.5
   lr_arch = 0.001
-  lr_model = 0.02
+  lr_model = 0.01
   wd_model = 5e-4
   wd_arch = 1e-4
   resource_constraint_weight = 1e-8
   cutout = True
   save_arch_frequence = 5
   input_shape = (3, 32, 32)
-  anneal_frequence = 20
+  anneal_frequence = 50
   if cutout:
     cutout_length = 16
+
+# TODO(ZhouJ) How to init in pytorch
+def weights_init(m, deepth=0, max_depth=2):
+  if deepth > max_depth:
+    return
+  if isinstance(m, torch.nn.Conv2d):
+    torch.nn.init.kaiming_uniform_(m.weight.data)
+    if m.bias is not None:
+      torch.nn.init.constant(m.bias.data)
+  elif isinstance(m, torch.nn.Linear):
+    m.weight.data.normal_(0, 0.01)
+    if m.bias is not None:
+      m.bias.data.zero_()
+  elif isinstance(m, torch.nn.BatchNorm2d):
+    return
+  elif isinstance(m, torch.nn.ReLU):
+    return
+  elif isinstance(m, torch.nn.Module):
+    deepth += 1
+    for m_ in m.modules():
+      weights_init(m_, deepth)
+  else:
+    raise ValueError("%s is unk" % m.__class__.__name__)
+
 
 def loss(model, input, target, temperature, criterion):
   """Given input, lable, temperature and criterion return loss.
