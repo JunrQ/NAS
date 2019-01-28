@@ -194,15 +194,14 @@ def get_mnist_iter(args):
 
 def ce(label, pred):
     label = label.ravel()
-    # print "label.shape",label.shape
-    # print "pred.shape",pred.shape
+    # print "label.shape", label.shape
+    # print "pred.shape", pred.shape
     assert label.shape[0] == pred.shape[0]
     prob = pred[np.arange(label.shape[0]), np.int64(label)]
     return -np.log(prob + 1e-9).sum()
 
 class CosineDecayScheduler_Grad(LRScheduler):
     """ Cosine Decay Scheduler.
-    (ZhouJ)
 
     Parameters
     ----------
@@ -210,12 +209,15 @@ class CosineDecayScheduler_Grad(LRScheduler):
        first_decay_step: int, decay steps, T_0
        t_mul: float
        m_mul: float
-       alpha: float, lr_min / lr_max
-       rise_region, (lr_max - lr_min) / rise_region
+       alpha: float
+           lr_min / lr_max
+       rise_region: float
+           (lr_max - lr_min) / rise_region
     """
     def __init__(self, first_decay_step, t_mul=2.0, m_mul=0.5, alpha=0.001, base_lr=0.01,rise_region=300):
         super(CosineDecayScheduler_Grad, self).__init__(base_lr)
         assert isinstance(first_decay_step, int)
+        assert rise_region < first_decay_step
         if first_decay_step < 1:
             raise ValueError("decay_step must be strictly positive")
         self.last_restart_step = 0
@@ -226,9 +228,7 @@ class CosineDecayScheduler_Grad(LRScheduler):
         self.alpha = alpha
         self.rise_region = rise_region
         self.mini_lr = self.init_lr * self.alpha
-        # self.rise_grad = (self.init_lr - self.mini_lr) / self.rise_region
         self.first_flag = True
-        self.restart_count = 0
 
     def __call__(self, num_update):
         T_cur = num_update - self.last_restart_step
@@ -238,25 +238,23 @@ class CosineDecayScheduler_Grad(LRScheduler):
             self.base_lr = self.mini_lr + self.rise_grad * T_cur
             if T_cur == self.rise_region:
                 self.last_restart_step = num_update
-                self.first_flag == True
+                self.first_flag = True
         else:
             cosine_decay = 0.5 * (1 + math.cos(math.pi * T_cur / self.T_0 ))
             decayed = (1 - self.alpha) * cosine_decay + self.alpha
             self.base_lr = self.init_lr * decayed
 
-        if T_cur >= self.T_0:
+        if T_cur == self.T_0:
             # restart
             self.last_restart_step = num_update
+            self.mini_lr = self.init_lr * self.alpha
             self.init_lr *= self.m_mul
             assert self.init_lr > self.mini_lr
-            # self.base_lr = self.init_lr
-            self.mini_lr = self.init_lr * self.alpha
             self.rise_grad = (self.init_lr - self.mini_lr) / self.rise_region
-            _logger.info("Update[%d]: Change learning rate to %f rise_grad is %f", 
-                         num_update, self.base_lr,self.rise_grad)
+            _logger.info("Update[%d]: Change learning rate to %f, rise step is %f", 
+                         num_update, self.init_lr, self.rise_grad)
 
             self.T_0 = int(self.T_0 * self.t_mul)
             self.first_flag = False
-            self.restart_count += 1
 
         return self.base_lr
