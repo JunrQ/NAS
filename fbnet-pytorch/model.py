@@ -22,8 +22,8 @@ class MixedOp(nn.Module):
 
 class FBNet(nn.Module):
 
-  def __init__(self, num_classes, criterion, blocks,
-               feature_dim=192, init_theta=1.0,
+  def __init__(self, num_classes, blocks,
+               init_theta=1.0,
                speed_f='./speed.txt',
                alpha=0.2,
                beta=0.6):
@@ -140,7 +140,6 @@ class Trainer(object):
     self.w_opt.step()
     if decay_temperature:
       self.temp *= self._tem_decay
-
   
   def train_t(self, input, target, decay_temperature=True):
     """Update theta.
@@ -156,6 +155,8 @@ class Trainer(object):
             epoch, step,
             log_frequence,
             func):
+    """Perform one step of training.
+    """
     func(input, target)
 
     # Get status
@@ -215,7 +216,3 @@ class Trainer(object):
         s = ' '.join([str(tmp) for tmp in t_list])
         f.write(s + '/n')
     return res
-
-
-
-
