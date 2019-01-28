@@ -9,7 +9,7 @@ class FBNet_ds(datasets.ImageFolder):
   """
   def __init__(self,
                **kwargs):
-    super.__init__(**kwargs)
+    super(FBNet_ds, self).__init__(**kwargs)
   
   def filter(self,
              samples_classes=100,
@@ -20,7 +20,7 @@ class FBNet_ds(datasets.ImageFolder):
     if not random_seed is None:
       assert isinstance(random_seed, int)
       np.random.seed(random_seed)
-    choosen_cls_idx = list(np.random.choice(samples_classes, range(_num_classes)))
+    choosen_cls_idx = list(np.random.choice(list(range(_num_classes)), samples_classes))
     _class_to_idx = {}
     for k, v in self.class_to_idx.items():
       if v in choosen_cls_idx:
@@ -59,16 +59,17 @@ def get_ds(args, traindir,
   
   ds_folder = FBNet_ds(root=traindir, 
           transform=transforms.Compose([
-          transforms.RandomSizedCrop(224),
+          transforms.RandomResizedCrop(224),
           transforms.RandomHorizontalFlip(),
           transforms.ToTensor(),
           normalize,]))
   ds_folder.filter(num_cls_used, random_seed=random_seed)
 
   num_train = len(ds_folder)
+  indices = list(range(num_train))
   if random_seed is not None:
     np.random.seed(random_seed)
-  indices = np.random.shuffle(list(range(num_train)))
+  np.random.shuffle(indices)
   split = int(np.floor(train_portion * num_train))
   
   train_queue = torch.utils.data.DataLoader(

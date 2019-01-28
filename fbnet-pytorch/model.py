@@ -29,18 +29,18 @@ class FBNet(nn.Module):
                beta=0.6):
     super(FBNet, self).__init__()
 
-    if isinstance(init_theta, int):
-      init_func = lambda x: nn.init.constant_(x, init_theta)
-    else:
-      init_func = init_theta
+    # if isinstance(init_theta, int):
+    init_func = lambda x: nn.init.constant_(x, init_theta)
+    
     self._alpha = alpha
     self._beta = beta
     self._criterion = nn.CrossEntropyLoss().cuda()
 
     self.theta = []
+    self._ops = []
     self._blocks = blocks
     for b in blocks:
-      if len(b) > 1:
+      if isinstance(b, list):
         num_block = len(b)
         theta = torch.ones((num_block, ), requires_grad=True)
         init_func(theta)

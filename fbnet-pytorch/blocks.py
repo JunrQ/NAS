@@ -57,7 +57,7 @@ def get_blocks():
   BLOCKS.append(nn.Conv2d(3, 16, 3, 2, padding=1))
   
   c_in = 16
-  for n_idx in range(_n[tbs_range]):
+  for n_idx in range(len(_n))[tbs_range]:
     c_out = _f[n_idx]
     stride = _s[n_idx]
 

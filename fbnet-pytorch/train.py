@@ -19,13 +19,13 @@ class Config(object):
   alpha = 0.2
   beta = 0.6
   speed_f = './speed.txt'
-  w_lr = 0.01
+  w_lr = 0.1
   w_mom = 0.9
   w_wd = 1e-4
-  t_lr = 0.001
-  t_wd = 3e-3
+  t_lr = 0.01
+  t_wd = 5e-4
   init_temperature = 5.0
-  temperature_decay = 0.965
+  temperature_decay = 0.956
   model_save_path = '/mnt/data3/zcq/nas/fbnet-pytorch/'
   total_epoch = 90
   start_w_epoch = 10

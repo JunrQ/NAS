@@ -2,8 +2,8 @@ import socket
 import logging
 import sys
 import os
-import colored
-import datetime
+from termcolor import colored
+from datetime import datetime
 import shutil
 
 class AvgrageMeter(object):
