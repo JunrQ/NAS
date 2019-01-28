@@ -157,6 +157,8 @@ class Trainer(object):
             func):
     """Perform one step of training.
     """
+    input = input.cuda()
+    target = target.cuda()
     func(input, target)
 
     # Get status

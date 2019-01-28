@@ -58,7 +58,7 @@ if not os.path.exists(args.model_save_path):
   os.makedirs(args.model_save_path)
 _set_file(args.model_save_path + 'log.log')
 
-imagenet_root = '/mnt/data1/caiyang/imagenet/train/'
+imagenet_root = '/mnt/data4/zcq/imagenet/train/'
 train_queue, val_queue = get_ds(args, imagenet_root,
                                 num_cls_used=config.num_cls_used)
 
@@ -69,6 +69,7 @@ model = FBNet(num_classes=config.num_cls_used,
               alpha=config.alpha,
               beta=config.beta,
               speed_f=config.speed_f)
+model = model.cuda()
 
 trainer = Trainer(network=model,
                   w_lr=config.w_lr,
