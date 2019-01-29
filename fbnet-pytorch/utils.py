@@ -23,7 +23,7 @@ class AvgrageMeter(object):
     self.avg = self.sum / self.cnt
   
   def __str__(self):
-    return "%s: .6%f" % (self._name, self.avg)
+    return "%s: %.5f" % (self._name, self.avg)
   
   def __repr__(self):
     return self.__str__()

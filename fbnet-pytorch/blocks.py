@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-def get_blocks():
+def get_blocks(cifar10=False):
   BLOCKS = []
   _f = [16, 16, 24, 32, 
       64, 112, 184, 352,
@@ -9,9 +9,14 @@ def get_blocks():
   _n = [1, 1, 4, 4,
       4, 4, 4, 1,
       1]
-  _s = [1, 1, 2, 2,
-      2, 1, 2, 1,
-      1]
+  if cifar10:
+    _s = [1, 1, 2, 2,
+        1, 1, 1, 1,
+        1]
+  else:
+    _s = [1, 1, 2, 2,
+        2, 1, 2, 1,
+        1]
   _e = [1, 1, 3, 6,
       1, 1, 3, 6]
   _kernel = [3, 3, 3, 3,

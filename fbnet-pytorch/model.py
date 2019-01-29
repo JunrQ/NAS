@@ -18,7 +18,14 @@ class MixedOp(nn.Module):
       self._ops.append(op)
 
   def forward(self, x, weights):
-    return sum(w * op(x) for w, op in zip(weights, self._ops))
+    
+    tmp = []
+    for i, op in enumerate(self._ops):
+      r = op(x)
+      w = weights[..., i].reshape((-1, 1, 1, 1))
+      res = w * r
+      tmp.append(res)
+    return sum(tmp)
 
 class FBNet(nn.Module):
 
@@ -37,17 +44,36 @@ class FBNet(nn.Module):
     self._criterion = nn.CrossEntropyLoss().cuda()
 
     self.theta = []
-    self._ops = []
+    self._ops = nn.ModuleList()
     self._blocks = blocks
+
+    tmp = []
+    input_conv_count = 0
+    for b in blocks:
+      if isinstance(b, nn.Module):
+        tmp.append(b)
+        input_conv_count += 1
+      else:
+        break
+    self._input_conv = nn.Sequential(*tmp)
+    self._input_conv_count = input_conv_count
     for b in blocks:
       if isinstance(b, list):
         num_block = len(b)
-        theta = torch.ones((num_block, ), requires_grad=True)
+        theta = nn.Parameter(torch.ones((num_block, )).cuda(), requires_grad=True)
         init_func(theta)
         self.theta.append(theta)
-
         self._ops.append(MixedOp(b))
-    
+        input_conv_count += 1
+    tmp = []
+    for b in blocks[input_conv_count:]:
+      if isinstance(b, nn.Module):
+        tmp.append(b)
+        input_conv_count += 1
+      else:
+        break
+    self._output_conv = nn.Sequential(*tmp)
+
     assert len(self.theta) == 22
     with open(speed_f, 'r') as f:
       self._speed = f.readlines()
@@ -56,29 +82,32 @@ class FBNet(nn.Module):
 
   def forward(self, input, target, temperature=5.0):
     batch_size = input.size()[0]
-    data = self._blocks[0](input)
+    data = self._input_conv(input)
     theta_idx = 0
     lat = []
-    for l_idx in range(1, len(self._blocks)):
+    for l_idx in range(self._input_conv_count, len(self._blocks)):
       block = self._blocks[l_idx]
-      if len(block) > 1:
+      if isinstance(block, list):
+        blk_len = len(block)
         theta = self.theta[theta_idx]
-        theta_idx += 1
-        # t = theta.reshape(1, -1)
         t = theta.repeat(batch_size, 1)
         weight = nn.functional.gumbel_softmax(t,
                                 temperature)
-        speed = self._speed[theta_idx].strip().split(' ')
+        speed = self._speed[theta_idx].strip().split(' ')[:blk_len]
         speed = [float(tmp) for tmp in speed]
-        lat_ = weight * torch.tensor(speed).repeat(batch_size, 1).sum()
-        lat.append(lat_)
+        lat_ = weight * torch.tensor(speed).cuda().repeat(batch_size, 1)
+        lat.append(torch.sum(lat_))
 
         data = self._ops[theta_idx](data, weight)
+        theta_idx += 1
       else:
-        data = block(data)
+        break
+
+    data = self._output_conv(data)
 
     lat = torch.tensor(lat)
-    data = nn.avg_pool2d(data, data.size()[2:])
+    data = nn.functional.avg_pool2d(data, data.size()[2:])
+    data = data.reshape((batch_size, -1))
     logits = self.classifier(data)
 
     self.ce = self._criterion(logits, target).sum()
@@ -103,13 +132,11 @@ class Trainer(object):
                temperature_decay=0.965,
                logger=logging):
     assert isinstance(network, FBNet)
-    network.train()
+    network = network.train().cuda()
     self._mod = network
     theta_params = network.theta
-    mod_params = []
-    for v in network.parameters():
-      if v not in theta_params:
-        mod_params.append(v)
+
+    mod_params = network.parameters()
     self.theta = theta_params
     self.w = mod_params
     self._tem_decay = temperature_decay
@@ -125,12 +152,12 @@ class Trainer(object):
                     w_lr,
                     momentum=w_mom,
                     weight_decay=w_wd)
-    
+
     self.t_opt = torch.optim.Adam(
                     theta_params,
                     lr=t_lr, betas=(0.5, 0.999), 
                     weight_decay=t_wd)
-    
+ 
   def train_w(self, input, target, decay_temperature=True):
     """Update model parameters.
     """
@@ -173,11 +200,10 @@ class Trainer(object):
 
     if step > 1 and (step % log_frequence == 0):
       self.toc = time.time()
-      speed = 1.0 * self._acc_avg.cnt / (self.toc - self.tic)
+      speed = 1.0 * (batch_size * log_frequence) / (self.toc - self.tic)
 
-      self.logger.info("Epoch[{}] Batch[{}] Speed: {}samples/sec \
-                      {} {} {}".format(epoch, step, speed,
-        self._acc_avg, self._ce_avg, self._lat_avg))
+      self.logger.info("Epoch[%d] Batch[%d] Speed: %.6f samples/sec %s %s %s" 
+              % (epoch, step, speed, self._acc_avg, self._ce_avg, self._lat_avg))
       self.tic = time.time()
   
   def search(self, train_w_ds,
@@ -187,7 +213,7 @@ class Trainer(object):
             log_frequence=100):
     """Search model.
     """
-    assert start_w_epoch >= 1, "Start to train w"
+    # assert start_w_epoch >= 1, "Start to train w"
     self.tic = time.time()
     for epoch in range(start_w_epoch):
       for step, (input, target) in enumerate(train_w_ds):
