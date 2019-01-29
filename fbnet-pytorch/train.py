@@ -29,6 +29,7 @@ class Config(object):
   model_save_path = '/mnt/data3/zcq/nas/fbnet-pytorch/'
   total_epoch = 90
   start_w_epoch = 10
+  train_portion = 0.8
 
 config = Config()
 
@@ -69,7 +70,6 @@ model = FBNet(num_classes=config.num_cls_used,
               alpha=config.alpha,
               beta=config.beta,
               speed_f=config.speed_f)
-model = model.cuda()
 
 trainer = Trainer(network=model,
                   w_lr=config.w_lr,

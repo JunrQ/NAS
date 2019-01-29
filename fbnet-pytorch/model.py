@@ -218,6 +218,7 @@ class Trainer(object):
     # assert start_w_epoch >= 1, "Start to train w"
     self.tic = time.time()
     for epoch in range(start_w_epoch):
+      self.logger.info("Start to train w for epoch %d" % epoch)
       for step, (input, target) in enumerate(train_w_ds):
         self._step(input, target, epoch, 
                    step, log_frequence,
@@ -225,11 +226,12 @@ class Trainer(object):
     
     self.tic = time.time()
     for epoch in range(total_epoch):
+      self.logger.info("Start to train theta for epoch %d" % epoch+start_w_epoch)
       for step, (input, target) in enumerate(train_t_ds):
         self._step(input, target, epoch + start_w_epoch, 
                    step, log_frequence,
                    lambda x, y: self.train_t(x, y, True))
-
+      self.logger.info("Start to train w for epoch %d" % epoch+start_w_epoch)
       for step, (input, target) in enumerate(train_w_ds):
         self._step(input, target, epoch + start_w_epoch, 
                    step, log_frequence,
