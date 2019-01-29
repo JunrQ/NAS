@@ -5,7 +5,8 @@ import torch.nn.functional as F
 import time
 import logging
 
-from utils import AvgrageMeter, weights_init
+from utils import AvgrageMeter, weights_init, \
+                  CosineDecayLR
 
 class MixedOp(nn.Module):
   """Mixed operation.
@@ -35,7 +36,6 @@ class FBNet(nn.Module):
                beta=0.6):
     super(FBNet, self).__init__()
 
-    # if isinstance(init_theta, int):
     init_func = lambda x: nn.init.constant_(x, init_theta)
     
     self._alpha = alpha
@@ -131,7 +131,8 @@ class Trainer(object):
                t_wd=3e-3,
                init_temperature=5.0,
                temperature_decay=0.965,
-               logger=logging):
+               logger=logging,
+               lr_scheduler={'T_max' : 200}):
     assert isinstance(network, FBNet)
     network.apply(weights_init)
     network = network.train().cuda()
@@ -154,6 +155,8 @@ class Trainer(object):
                     w_lr,
                     momentum=w_mom,
                     weight_decay=w_wd)
+    
+    self.w_sche = CosineDecayLR(self.w_opt, **lr_scheduler)
 
     self.t_opt = torch.optim.Adam(
                     theta_params,
@@ -168,7 +171,9 @@ class Trainer(object):
     loss.backward()
     self.w_opt.step()
     if decay_temperature:
+      tmp = self.temp
       self.temp *= self._tem_decay
+      self.logger.info("Change temperature from %.5f to %.5f" % (tmp, self.temp))
   
   def train_t(self, input, target, decay_temperature=True):
     """Update theta.
@@ -178,7 +183,17 @@ class Trainer(object):
     loss.backward()
     self.t_opt.step()
     if decay_temperature:
+      tmp = self.temp
       self.temp *= self._tem_decay
+      self.logger.info("Change temperature from %.5f to %.5f" % (tmp, self.temp))
+  
+  def decay_temperature(self, decay_ratio=None):
+    tmp = self.temp
+    if decay_ratio is None:
+      self.temp *= self._tem_decay
+    else:
+      self.temp *= decay_ratio
+    self.logger.info("Change temperature from %.5f to %.5f" % (tmp, self.temp))
   
   def _step(self, input, target, 
             epoch, step,
@@ -223,19 +238,23 @@ class Trainer(object):
         self._step(input, target, epoch, 
                    step, log_frequence,
                    lambda x, y: self.train_w(x, y, False))
-    
+        self.w_sche.step()
+        # print(self.w_sche.last_epoch, self.w_opt.param_groups[0]['lr'])
+
     self.tic = time.time()
     for epoch in range(total_epoch):
       self.logger.info("Start to train theta for epoch %d" % (epoch+start_w_epoch))
       for step, (input, target) in enumerate(train_t_ds):
         self._step(input, target, epoch + start_w_epoch, 
                    step, log_frequence,
-                   lambda x, y: self.train_t(x, y, True))
+                   lambda x, y: self.train_t(x, y, False))
+      self.decay_temperature()
       self.logger.info("Start to train w for epoch %d" % (epoch+start_w_epoch))
       for step, (input, target) in enumerate(train_w_ds):
         self._step(input, target, epoch + start_w_epoch, 
                    step, log_frequence,
                    lambda x, y: self.train_w(x, y, False))
+        self.w_sche.step()
 
   def save_theta(self, save_path='theta.txt', epoch=-1):
     """Save theta.

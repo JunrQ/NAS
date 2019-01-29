@@ -31,6 +31,15 @@ class Config(object):
   start_w_epoch = 10
   train_portion = 0.8
 
+lr_scheduler_params = {
+  'logger' : _logger,
+  'T_max' : 400,
+  'alpha' : 1e-4,
+  'warmup_step' : 100,
+  't_mul' : 1.5,
+  'lr_mul' : 0.95,
+}
+
 config = Config()
 
 logging.basicConfig(level=logging.INFO)
@@ -79,7 +88,8 @@ trainer = Trainer(network=model,
                   t_wd=config.t_wd,
                   init_temperature=config.init_temperature,
                   temperature_decay=config.temperature_decay,
-                  logger=_logger)
+                  logger=_logger,
+                  lr_scheduler=lr_scheduler_params)
 
 trainer.search(train_queue, val_queue,
                total_epoch=config.total_epoch,

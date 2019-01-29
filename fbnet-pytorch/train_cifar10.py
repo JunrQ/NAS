@@ -30,8 +30,17 @@ class Config(object):
   temperature_decay = 0.956
   model_save_path = '/home1/nas/fbnet-pytorch/'
   total_epoch = 90
-  start_w_epoch = 5
+  start_w_epoch = 4
   train_portion = 0.8
+
+lr_scheduler_params = {
+  'logger' : _logger,
+  'T_max' : 400,
+  'alpha' : 1e-4,
+  'warmup_step' : 100,
+  't_mul' : 1.5,
+  'lr_mul' : 0.98,
+}
 
 config = Config()
 
@@ -101,7 +110,8 @@ trainer = Trainer(network=model,
                   t_wd=config.t_wd,
                   init_temperature=config.init_temperature,
                   temperature_decay=config.temperature_decay,
-                  logger=_logger)
+                  logger=_logger,
+                  lr_scheduler=lr_scheduler_params)
 
 trainer.search(train_queue, val_queue,
                total_epoch=config.total_epoch,
