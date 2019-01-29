@@ -7,6 +7,7 @@ import logging
 
 from utils import AvgrageMeter, weights_init, \
                   CosineDecayLR
+from data_parallel import DataParallel
 
 class MixedOp(nn.Module):
   """Mixed operation.
@@ -35,7 +36,6 @@ class FBNet(nn.Module):
                alpha=0.2,
                beta=0.6):
     super(FBNet, self).__init__()
-
     init_func = lambda x: nn.init.constant_(x, init_theta)
     
     self._alpha = alpha
@@ -76,11 +76,11 @@ class FBNet(nn.Module):
     assert len(self.theta) == 22
     with open(speed_f, 'r') as f:
       self._speed = f.readlines()
-
     self.classifier = nn.Linear(1984, num_classes)
 
-  def forward(self, input, target, temperature=5.0):
+  def forward(self, input, target, temperature=5.0, theta_list=None):
     batch_size = input.size()[0]
+    self.batch_size = batch_size
     data = self._input_conv(input)
     theta_idx = 0
     lat = []
@@ -88,7 +88,10 @@ class FBNet(nn.Module):
       block = self._blocks[l_idx]
       if isinstance(block, list):
         blk_len = len(block)
-        theta = self.theta[theta_idx]
+        if theta_list is None:
+          theta = self.theta[theta_idx]
+        else:
+          theta = theta_list[theta_idx]
         t = theta.repeat(batch_size, 1)
         weight = nn.functional.gumbel_softmax(t,
                                 temperature)
@@ -104,7 +107,7 @@ class FBNet(nn.Module):
 
     data = self._output_conv(data)
 
-    lat = torch.tensor(lat)
+    lat = torch.tensor(lat).cuda()
     data = nn.functional.avg_pool2d(data, data.size()[2:])
     data = data.reshape((batch_size, -1))
     logits = self.classifier(data)
@@ -115,10 +118,9 @@ class FBNet(nn.Module):
 
     pred = torch.argmax(logits, dim=1)
     # succ = torch.sum(pred == target).cpu().numpy() * 1.0
-    succ = torch.sum(pred == target).float()
-    self.acc = 1.0 * succ / batch_size
-    self.batch_size = batch_size
-    return self.loss
+    self.acc = torch.sum(pred == target).float()
+    # self.acc = 1.0 * succ / batch_size
+    return self.loss, self.ce, self.lat_loss, self.acc
 
 class Trainer(object):
   """Training network parameters and theta separately.
@@ -132,13 +134,17 @@ class Trainer(object):
                init_temperature=5.0,
                temperature_decay=0.965,
                logger=logging,
-               lr_scheduler={'T_max' : 200}):
+               lr_scheduler={'T_max' : 200},
+               gpus=[0]):
     assert isinstance(network, FBNet)
     network.apply(weights_init)
     network = network.train().cuda()
+    if isinstance(gpus, str):
+      gpus = [int(i) for i in gpus.strip().split(',')]
+      network = DataParallel(network, gpus)
+    self.gpus = gpus
     self._mod = network
     theta_params = network.theta
-
     mod_params = network.parameters()
     self.theta = theta_params
     self.w = mod_params
@@ -160,32 +166,34 @@ class Trainer(object):
 
     self.t_opt = torch.optim.Adam(
                     theta_params,
-                    lr=t_lr, betas=(0.5, 0.999), 
+                    lr=t_lr, betas=(0.9, 0.999),
                     weight_decay=t_wd)
- 
-  def train_w(self, input, target, decay_temperature=True):
+
+  def train_w(self, input, target, decay_temperature=False):
     """Update model parameters.
     """
     self.w_opt.zero_grad()
-    loss = self._mod(input, target, self.temp)
+    loss, ce, lat, acc = self._mod(input, target, self.temp)
     loss.backward()
     self.w_opt.step()
     if decay_temperature:
       tmp = self.temp
       self.temp *= self._tem_decay
       self.logger.info("Change temperature from %.5f to %.5f" % (tmp, self.temp))
+    return loss, ce, lat, acc
   
-  def train_t(self, input, target, decay_temperature=True):
+  def train_t(self, input, target, decay_temperature=False):
     """Update theta.
     """
     self.t_opt.zero_grad()
-    loss = self._mod(input, target, self.temp)
+    loss, ce, lat, acc = self._mod(input, target, self.temp)
     loss.backward()
     self.t_opt.step()
     if decay_temperature:
       tmp = self.temp
       self.temp *= self._tem_decay
       self.logger.info("Change temperature from %.5f to %.5f" % (tmp, self.temp))
+    return loss, ce, lat, acc
   
   def decay_temperature(self, decay_ratio=None):
     tmp = self.temp
@@ -203,13 +211,13 @@ class Trainer(object):
     """
     input = input.cuda()
     target = target.cuda()
-    func(input, target)
+    _, ce, lat, acc = func(input, target)
 
     # Get status
     batch_size = self._mod.batch_size
-    acc = self._mod.acc
-    ce = self._mod.ce / batch_size
-    lat = self._mod.lat_loss / batch_size
+    ce = ce / batch_size
+    lat = lat / batch_size
+    acc = acc / batch_size
 
     self._acc_avg.update(acc, batch_size)
     self._ce_avg.update(ce, batch_size)
@@ -221,6 +229,7 @@ class Trainer(object):
 
       self.logger.info("Epoch[%d] Batch[%d] Speed: %.6f samples/sec %s %s %s" 
               % (epoch, step, speed, self._acc_avg, self._ce_avg, self._lat_avg))
+      map(lambda avg: avg.reset(), [self._acc_avg, self._ce_avg, self._lat_avg])
       self.tic = time.time()
   
   def search(self, train_w_ds,
@@ -248,6 +257,7 @@ class Trainer(object):
         self._step(input, target, epoch + start_w_epoch, 
                    step, log_frequence,
                    lambda x, y: self.train_t(x, y, False))
+        print(self.theta)
       self.decay_temperature()
       self.logger.info("Start to train w for epoch %d" % (epoch+start_w_epoch))
       for step, (input, target) in enumerate(train_w_ds):

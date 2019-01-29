@@ -64,11 +64,6 @@ model = Network(C=cfg.init_channels, num_classes=CIFAR_CLASSES,
                 shape=cfg.input_shape)
 model.apply(weights_init)
 
-# # TODO(ZhouJ) How to init?
-# for k in model.named_parameters():
-#   if 'weight' in k[0] and (len(k[1].shape) in [4, 2]): # for conv and fc
-#     torch.nn.init.kaiming_uniform(k[1])
-
 mod_params = model.model_parameters()
 arch_params = model.arch_parameters()
 
