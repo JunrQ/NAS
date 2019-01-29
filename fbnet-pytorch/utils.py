@@ -6,6 +6,8 @@ from termcolor import colored
 from datetime import datetime
 import shutil
 
+import torch
+
 class AvgrageMeter(object):
 
   def __init__(self, name=''):
@@ -28,6 +30,27 @@ class AvgrageMeter(object):
   def __repr__(self):
     return self.__str__()
 
+def weights_init(m, deepth=0, max_depth=2):
+  if deepth > max_depth:
+    return
+  if isinstance(m, torch.nn.Conv2d):
+    torch.nn.init.kaiming_uniform_(m.weight.data)
+    if m.bias is not None:
+      torch.nn.init.constant_(m.bias.data, 0)
+  elif isinstance(m, torch.nn.Linear):
+    m.weight.data.normal_(0, 0.01)
+    if m.bias is not None:
+      m.bias.data.zero_()
+  elif isinstance(m, torch.nn.BatchNorm2d):
+    return
+  elif isinstance(m, torch.nn.ReLU):
+    return
+  elif isinstance(m, torch.nn.Module):
+    deepth += 1
+    for m_ in m.modules():
+      weights_init(m_, deepth)
+  else:
+    raise ValueError("%s is unk" % m.__class__.__name__)
 
 def get_ip():
     try:

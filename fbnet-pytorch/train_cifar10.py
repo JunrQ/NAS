@@ -30,7 +30,7 @@ class Config(object):
   temperature_decay = 0.956
   model_save_path = '/home1/nas/fbnet-pytorch/'
   total_epoch = 90
-  start_w_epoch = 0
+  start_w_epoch = 10
   train_portion = 0.8
 
 config = Config()

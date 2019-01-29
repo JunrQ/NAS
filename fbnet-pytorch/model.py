@@ -5,7 +5,7 @@ import torch.nn.functional as F
 import time
 import logging
 
-from utils import AvgrageMeter
+from utils import AvgrageMeter, weights_init
 
 class MixedOp(nn.Module):
   """Mixed operation.
@@ -18,7 +18,6 @@ class MixedOp(nn.Module):
       self._ops.append(op)
 
   def forward(self, x, weights):
-    
     tmp = []
     for i, op in enumerate(self._ops):
       r = op(x)
@@ -115,7 +114,9 @@ class FBNet(nn.Module):
     self.loss = self.ce +  self._alpha * self.lat_loss.pow(self._beta)
 
     pred = torch.argmax(logits, dim=1)
-    self.acc = torch.sum(pred == target) / batch_size
+    # succ = torch.sum(pred == target).cpu().numpy() * 1.0
+    succ = torch.sum(pred == target).float()
+    self.acc = 1.0 * succ / batch_size
     self.batch_size = batch_size
     return self.loss
 
@@ -132,6 +133,7 @@ class Trainer(object):
                temperature_decay=0.965,
                logger=logging):
     assert isinstance(network, FBNet)
+    network.apply(weights_init)
     network = network.train().cuda()
     self._mod = network
     theta_params = network.theta
