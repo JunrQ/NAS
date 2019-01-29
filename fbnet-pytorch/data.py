@@ -22,15 +22,19 @@ class FBNet_ds(datasets.ImageFolder):
       np.random.seed(random_seed)
     choosen_cls_idx = list(np.random.choice(list(range(_num_classes)), samples_classes))
     _class_to_idx = {}
+    cls_id = 0
+    _cls_map = dict()
     for k, v in self.class_to_idx.items():
       if v in choosen_cls_idx:
-        _class_to_idx[k] = v
+        _class_to_idx[k] = cls_id
+        _cls_map[v] = cls_id
+        cls_id += 1
     self.class_to_idx = _class_to_idx
 
     _samples = []
     for item in self.samples:
       if item[1] in choosen_cls_idx:
-        _samples.append(item)
+        _samples.append((item[0], _cls_map[item[1]]))
     self.samples = _samples
     _classes = []
     for c in self.classes:
