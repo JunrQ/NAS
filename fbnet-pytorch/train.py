@@ -69,11 +69,11 @@ if not os.path.exists(args.model_save_path):
 _set_file(args.model_save_path + 'log.log')
 
 imagenet_root = '/mnt/data4/zcq/imagenet/train/'
-train_queue, val_queue = get_ds(args, imagenet_root,
+train_queue, val_queue, num_classes = get_ds(args, imagenet_root,
                                 num_cls_used=config.num_cls_used)
 
 blocks = get_blocks()
-model = FBNet(num_classes=config.num_cls_used,
+model = FBNet(num_classes=num_classes,
               blocks=blocks,
               init_theta=config.init_theta,
               alpha=config.alpha,

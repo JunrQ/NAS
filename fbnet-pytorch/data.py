@@ -69,6 +69,9 @@ def get_ds(args, traindir,
           normalize,]))
   if num_cls_used > 0:
     ds_folder.filter(num_cls_used, random_seed=random_seed)
+    num_class = num_cls_used
+  else:
+    num_class = len(ds_folder.classes)
 
   num_train = len(ds_folder)
   indices = list(range(num_train))
@@ -87,4 +90,4 @@ def get_ds(args, traindir,
       sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[split:num_train]),
       pin_memory=True, num_workers=args.num_workers)
   
-  return train_queue, valid_queue
+  return train_queue, valid_queue, num_class

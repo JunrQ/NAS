@@ -16,7 +16,7 @@ from utils import _logger, _set_file
 
 
 class Config(object):
-  num_cls_used = 10
+  num_cls_used = 0
   init_theta = 1.0
   alpha = 0.2
   beta = 0.6
@@ -95,7 +95,7 @@ val_queue = torch.utils.data.DataLoader(
   pin_memory=True, num_workers=8)
 
 blocks = get_blocks(cifar10=True)
-model = FBNet(num_classes=config.num_cls_used,
+model = FBNet(num_classes=config.num_cls_used if config.num_cls_used > 0 else 10,
               blocks=blocks,
               init_theta=config.init_theta,
               alpha=config.alpha,
