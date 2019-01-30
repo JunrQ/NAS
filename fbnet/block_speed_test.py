@@ -15,7 +15,7 @@ import time
 from blocks import block_factory
 from blocks_se import block_factory_se
 
-times = 5000
+times = 1000
 _e = [1, 1, 3, 6,
       1, 1, 3, 6]
 _kernel = [3, 3, 3, 3,
@@ -26,7 +26,7 @@ _group = [1, 2, 1, 1,
 logging.basicConfig(level=logging.INFO)
 
 nchannel = 3
-def speed_test(input_shape, s_size, num_filter, ctx = mx.gpu(0)):
+def speed_test(input_shape, s_size, num_filter, ctx=mx.cpu()):
   input_channels = input_shape[0]
   data = mx.sym.var('data')
   block_list = []
@@ -40,7 +40,7 @@ def speed_test(input_shape, s_size, num_filter, ctx = mx.gpu(0)):
     block_out = block_factory(data, input_channels=input_channels,
                         num_filters=num_filter, kernel_size=kernel_size,
                         prefix=prefix, expansion=expansion,
-                        group=group, shuffle=False,
+                        group=group, shuffle=True,
                         stride=stride, bn=False)
     # block_out = mx.sym.BatchNorm(data=block_out, fix_gamma=False, eps=2e-5, momentum=0.9)
     if (input_channels == num_filter) and (s_size == 1):
@@ -174,7 +174,7 @@ if __name__ == '__main__':
   # speed_test((112, 14, 14), 1, 112) # 3 layer
   # speed_test((112, 14, 14), 2, 184)
   # speed_test((184, 7, 7), 1, 184) # 3 layertrue
-  #speed_test((184, 7, 7), 1, 352)
+  # speed_test((184, 7, 7), 1, 352)
   
   # speed_test_se((64, 54, 54),stride=1, num_filter=256,dim_match = False,deform_conv = False) 
   # speed_test_se((256, 54, 54),stride=1, num_filter=256,dim_match = True,deform_conv = False) # 2 layer
@@ -184,8 +184,21 @@ if __name__ == '__main__':
   
   # speed_test_se((512, 27, 27),stride=2, num_filter=1024,dim_match = False,deform_conv = False)
   # speed_test_se((1024, 14, 14),stride=1, num_filter=1024,dim_match = True,deform_conv = False)  # 5 layer
-# 
+
   # speed_test_se((1024, 14, 14),stride=2, num_filter=2048,dim_match = False,deform_conv = False) 
-  speed_test_se((2048, 7, 7),stride=1, num_filter=2048,dim_match = True,deform_conv = True)  # 2 layer
+  # speed_test_se((2048, 7, 7),stride=1, num_filter=2048,dim_match = True,deform_conv = True)  # 2 layer
   
   #speed_test_se((256, 54, 54),2, 512,dim_match = False,shape = True)
+
+  # speed_test((16, 112, 112), 1, 16)
+  # speed_test((16, 112, 112), 2, 24)
+  # speed_test((24, 56, 56), 1, 24) # 3 layer
+  # speed_test((24, 56, 56), 2, 32)
+  # speed_test((32, 28, 28), 1, 32) # 3 layer
+  # speed_test((32, 28, 28), 2, 64)
+  # speed_test((64, 14, 14), 1, 64) # 3 layer
+  # speed_test((64, 14, 14), 1, 112)
+  # speed_test((112, 14, 14), 1, 112) # 3 layer
+  # speed_test((112, 14, 14), 2, 184)
+  # speed_test((184, 7, 7), 1, 184) # 3 layer
+  speed_test((184, 7, 7), 1, 352)

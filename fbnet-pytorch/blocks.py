@@ -1,6 +1,28 @@
 import torch
 import torch.nn as nn
 
+
+class ChannelShuffle(nn.Module):
+  def __init__(self, group=1):
+    assert group > 1
+    super(ChannelShuffle, self).__init__()
+    self.group = group
+  def forward(self, x):
+    """https://github.com/Randl/ShuffleNetV2-pytorch/blob/master/model.py
+    """
+    batchsize, num_channels, height, width = x.data.size()
+    assert (num_channels % self.groups == 0)
+    channels_per_group = num_channels // self.groups
+    # reshape
+    x = x.view(batchsize, self.groups, channels_per_group, height, width)
+    # transpose
+    # - contiguous() required if transpose() is used before view().
+    #   See https://github.com/pytorch/pytorch/issues/764
+    x = torch.transpose(x, 1, 2).contiguous()
+    # flatten
+    x = x.view(batchsize, -1, height, width)
+    return x
+
 class Identity(nn.Module):
   def __init__(self):
     super(Identity, self).__init__()
@@ -13,16 +35,30 @@ class FBNetBlock(nn.Module):
     super(FBNetBlock, self).__init__()
     assert not bn, "not support for now"
     bias_flag = not bn
-    self.op = nn.Sequential(
-      nn.Conv2d(C_in, C_in*expansion, 1, stride=1, padding=0,
-                groups=group, bias=bias_flag),
-      nn.ReLU(inplace=False),
-      nn.Conv2d(C_in*expansion, C_in*expansion, 3, stride=stride, 
-                padding=1, groups=C_in*expansion, bias=bias_flag),
-      nn.ReLU(inplace=False),
-      nn.Conv2d(C_in*expansion, C_out, 1, stride=1, padding=0, 
-                groups=group, bias=bias_flag)
-    )
+    if group == 1:
+      self.op = nn.Sequential(
+        nn.Conv2d(C_in, C_in*expansion, 1, stride=1, padding=0,
+                  groups=group, bias=bias_flag),
+        nn.ReLU(inplace=False),
+        nn.Conv2d(C_in*expansion, C_in*expansion, 3, stride=stride, 
+                  padding=1, groups=C_in*expansion, bias=bias_flag),
+        nn.ReLU(inplace=False),
+        nn.Conv2d(C_in*expansion, C_out, 1, stride=1, padding=0, 
+                  groups=group, bias=bias_flag)
+      )
+    else:
+      self.op = nn.Sequential(
+        nn.Conv2d(C_in, C_in*expansion, 1, stride=1, padding=0,
+                  groups=group, bias=bias_flag),
+        nn.ReLU(inplace=False),
+        ChannelShuffle(group),
+        nn.Conv2d(C_in*expansion, C_in*expansion, 3, stride=stride, 
+                  padding=1, groups=C_in*expansion, bias=bias_flag),
+        nn.ReLU(inplace=False),
+        ChannelShuffle(group),
+        nn.Conv2d(C_in*expansion, C_out, 1, stride=1, padding=0, 
+                  groups=group, bias=bias_flag)
+      )
     res_flag = ((C_in == C_out) and (stride == 1))
     self.res_flag = res_flag
     if not res_flag:

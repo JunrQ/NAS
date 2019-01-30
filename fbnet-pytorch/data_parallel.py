@@ -42,7 +42,7 @@ class DataParallel(torch.nn.Module):
     if len(self.device_ids) == 1:
       return self.module(*inputs[0], **kwargs[0])
     else:
-      replicas = replicate(self.module, self.device_ids)
+      replicas = replicate(self.module, self.device_ids[:len(inputs)])
       theta_list = [[] for _ in self.device_ids]
       for t in self.theta:
         t_ = Broadcast.apply(self.device_ids, t)
@@ -52,8 +52,7 @@ class DataParallel(torch.nn.Module):
         k['theta_list'] = theta_list[i]
 
       outputs = parallel_apply(replicas, 
-          inputs, kwargs, self.device_ids)
+          inputs, kwargs, self.device_ids[:len(replicas)])
       outputs = gather(outputs, self.device_ids[0])
-      # print(outputs)
 
       return [o.sum() for o in outputs]

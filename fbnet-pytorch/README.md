@@ -20,3 +20,7 @@ python train.py --batch-size $[24*8] --log-frequence 100 --gpus 0,1,2,3,4,5,6,7
 
 - initial value of theta
 - cosine decay step, step multiplier, lr multiplier, alpha, ...
+
+**speed**
+- `speed_cpu.txt`: measure in cpu
+- `speed.txt`: measure in 1080Ti gpu
