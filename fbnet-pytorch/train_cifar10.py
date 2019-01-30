@@ -79,8 +79,8 @@ train_transform = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
   ])
-train_data = dset.CIFAR10(root='../', train=True, 
-                download=True, transform=train_transform)
+train_data = dset.CIFAR10(root='/home/zhouchangqing/nas/', train=True, 
+                download=False, transform=train_transform)
 
 num_train = len(train_data)
 indices = list(range(num_train))

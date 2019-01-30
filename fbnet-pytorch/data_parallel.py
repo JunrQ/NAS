@@ -55,4 +55,4 @@ class DataParallel(torch.nn.Module):
           inputs, kwargs, self.device_ids[:len(replicas)])
       outputs = gather(outputs, self.device_ids[0])
 
-      return [o.sum() for o in outputs]
+      return [o.mean() for o in outputs]

@@ -11,10 +11,10 @@ class ChannelShuffle(nn.Module):
     """https://github.com/Randl/ShuffleNetV2-pytorch/blob/master/model.py
     """
     batchsize, num_channels, height, width = x.data.size()
-    assert (num_channels % self.groups == 0)
-    channels_per_group = num_channels // self.groups
+    assert (num_channels % self.group == 0)
+    channels_per_group = num_channels // self.group
     # reshape
-    x = x.view(batchsize, self.groups, channels_per_group, height, width)
+    x = x.view(batchsize, self.group, channels_per_group, height, width)
     # transpose
     # - contiguous() required if transpose() is used before view().
     #   See https://github.com/pytorch/pytorch/issues/764

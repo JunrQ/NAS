@@ -113,13 +113,12 @@ class FBNet(nn.Module):
     logits = self.classifier(data)
 
     self.ce = self._criterion(logits, target).sum()
-    self.lat_loss = torch.sum(lat)
+    self.lat_loss = torch.sum(lat) / batch_size
     self.loss = self.ce +  self._alpha * self.lat_loss.pow(self._beta)
 
     pred = torch.argmax(logits, dim=1)
     # succ = torch.sum(pred == target).cpu().numpy() * 1.0
-    self.acc = torch.sum(pred == target).float()
-    # self.acc = 1.0 * succ / batch_size
+    self.acc = torch.sum(pred == target).float() / batch_size
     return self.loss, self.ce, self.lat_loss, self.acc
 
 class Trainer(object):
@@ -157,6 +156,7 @@ class Trainer(object):
     self._acc_avg = AvgrageMeter('acc')
     self._ce_avg = AvgrageMeter('ce')
     self._lat_avg = AvgrageMeter('lat')
+    self._loss_avg = AvgrageMeter('loss')
 
     self.w_opt = torch.optim.SGD(
                     mod_params,
@@ -176,7 +176,6 @@ class Trainer(object):
     """
     self.w_opt.zero_grad()
     loss, ce, lat, acc = self._mod(input, target, self.temp)
-    loss = loss / self._mod.batch_size
     loss.backward()
     self.w_opt.step()
     if decay_temperature:
@@ -190,7 +189,6 @@ class Trainer(object):
     """
     self.t_opt.zero_grad()
     loss, ce, lat, acc = self._mod(input, target, self.temp)
-    loss = loss / self._mod.batch_size
     loss.backward()
     self.t_opt.step()
     if decay_temperature:
@@ -215,24 +213,23 @@ class Trainer(object):
     """
     input = input.cuda()
     target = target.cuda()
-    _, ce, lat, acc = func(input, target)
+    loss, ce, lat, acc = func(input, target)
 
     # Get status
     batch_size = self._mod.batch_size
-    ce = ce / batch_size
-    lat = lat / batch_size
-    acc = acc / batch_size
 
-    self._acc_avg.update(acc, batch_size)
-    self._ce_avg.update(ce, batch_size)
-    self._lat_avg.update(lat, batch_size)
+    self._acc_avg.update(acc)
+    self._ce_avg.update(ce)
+    self._lat_avg.update(lat)
+    self._loss_avg.update(loss)
 
     if step > 1 and (step % log_frequence == 0):
       self.toc = time.time()
       speed = 1.0 * (batch_size * log_frequence) / (self.toc - self.tic)
 
-      self.logger.info("Epoch[%d] Batch[%d] Speed: %.6f samples/sec %s %s %s" 
-              % (epoch, step, speed, self._acc_avg, self._ce_avg, self._lat_avg))
+      self.logger.info("Epoch[%d] Batch[%d] Speed: %.6f samples/sec %s %s %s %s" 
+              % (epoch, step, speed, self._loss_avg, 
+                 self._acc_avg, self._ce_avg, self._lat_avg))
       map(lambda avg: avg.reset(), [self._acc_avg, self._ce_avg, self._lat_avg])
       self.tic = time.time()
   
