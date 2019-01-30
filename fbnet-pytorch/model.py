@@ -135,7 +135,8 @@ class Trainer(object):
                temperature_decay=0.965,
                logger=logging,
                lr_scheduler={'T_max' : 200},
-               gpus=[0]):
+               gpus=[0],
+               save_theta_prefix=''):
     assert isinstance(network, FBNet)
     network.apply(weights_init)
     network = network.train().cuda()
@@ -151,6 +152,7 @@ class Trainer(object):
     self._tem_decay = temperature_decay
     self.temp = init_temperature
     self.logger = logger
+    self.save_theta_prefix = save_theta_prefix
 
     self._acc_avg = AvgrageMeter('acc')
     self._ce_avg = AvgrageMeter('ce')
@@ -174,6 +176,7 @@ class Trainer(object):
     """
     self.w_opt.zero_grad()
     loss, ce, lat, acc = self._mod(input, target, self.temp)
+    loss = loss / self._mod.batch_size
     loss.backward()
     self.w_opt.step()
     if decay_temperature:
@@ -187,6 +190,7 @@ class Trainer(object):
     """
     self.t_opt.zero_grad()
     loss, ce, lat, acc = self._mod(input, target, self.temp)
+    loss = loss / self._mod.batch_size
     loss.backward()
     self.t_opt.step()
     if decay_temperature:
@@ -239,7 +243,7 @@ class Trainer(object):
             log_frequence=100):
     """Search model.
     """
-    # assert start_w_epoch >= 1, "Start to train w"
+    assert start_w_epoch >= 1, "Start to train w"
     self.tic = time.time()
     for epoch in range(start_w_epoch):
       self.logger.info("Start to train w for epoch %d" % epoch)
@@ -257,7 +261,8 @@ class Trainer(object):
         self._step(input, target, epoch + start_w_epoch, 
                    step, log_frequence,
                    lambda x, y: self.train_t(x, y, False))
-        print(self.theta)
+        self.save_theta('../theta-result/%s_theta_epoch_%d.txt' % 
+                    (self.save_theta_prefix, epoch+start_w_epoch))
       self.decay_temperature()
       self.logger.info("Start to train w for epoch %d" % (epoch+start_w_epoch))
       for step, (input, target) in enumerate(train_w_ds):
@@ -266,7 +271,7 @@ class Trainer(object):
                    lambda x, y: self.train_w(x, y, False))
         self.w_sche.step()
 
-  def save_theta(self, save_path='theta.txt', epoch=-1):
+  def save_theta(self, save_path='theta.txt'):
     """Save theta.
     """
     res = []

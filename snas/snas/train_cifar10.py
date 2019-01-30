@@ -79,7 +79,7 @@ model = torch.nn.DataParallel(model, device_ids=ctxs)
 # Data set configuration
 #-----------------------------
 train_transform, valid_transform = utils._data_transforms_cifar10(cfg)
-train_data = dset.CIFAR10(root='../', train=True, 
+train_data = dset.CIFAR10(root='../../', train=True, 
                 download=True, transform=train_transform)
 
 num_train = len(train_data)
