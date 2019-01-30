@@ -4,6 +4,8 @@
 - Hardware-Aware Efficient ConvNet Design via Differentiable Neural Architecture Search
 **Implementation of [FBNet](https://arxiv.org/pdf/1812.03443.pdf) with PyTorch**
 
+**Note:** I use + not * in loss.
+
 ## Train cifar10
 ```shell
 python train_cifar10.py --batch-size 32 --log-frequence 100

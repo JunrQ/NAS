@@ -1,13 +1,15 @@
-# https://github.com/Astrodyn94/SNAS-Stochastic-Neural-Architecture-Search-/blob/master/model_search_cons.py
-
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 import math
+import time
+import logging
 
 from ops import *
+from utils import AvgrageMeter, weights_init, CosineDecayLR
+from data_parallel import DataParallel
 
 class MixedOp(nn.Module):
   def __init__(self, C, stride, h, w, ratio=1.0):
@@ -65,9 +67,9 @@ class MixedOp(nn.Module):
         MAC = 0
       self._ops.append(op)
       self.COSTS.append(FLOP + ratio * MAC)
-    
-    # TODO(ZhouJ) This may lack flexibility
-    self.cost = torch.tensor(sum(a for a in self.COSTS), requires_grad=False)
+
+    self.cost = torch.tensor(sum(self.COSTS) / len(PRIMITIVES), 
+                             requires_grad=False).cuda()
 
   def forward(self, x, Z):
     output = sum(z * op(x) for z, op in zip(Z, self._ops))
@@ -95,12 +97,9 @@ class Cell(nn.Module):
     self.preprocess1 = ReLUConvBN(C_prev, C, 1, 1, 0, affine=False)
     self._steps = steps
     self._multiplier = multiplier
-    assert steps == multiplier, "Steps just means multiplier " + \
-                                "unless you want do extra calculation"
 
     self._ops = nn.ModuleList()
     self._bns = nn.ModuleList()
-    # steps is set to 4, which is number of the intermediate nodes
     for i in range(self._steps):
       for j in range(2 + i):
         stride = 2 if reduction and j < 2 else 1
@@ -122,11 +121,11 @@ class Cell(nn.Module):
       states.append(s)
       costs.append(cost)
     state = torch.cat(states[-self._multiplier:], dim=1)
-    cost_ = torch.sum(torch.tensor(costs[-self._multiplier:])).to(state.device)
+    cost_ = torch.mean(torch.tensor(costs[-self._multiplier:]))
     return state, cost_
 
-class Network(nn.Module):
-  def __init__(self, C, num_classes, layers, criterion, 
+class SNAS(nn.Module):
+  def __init__(self, C, num_classes, layers, 
                steps=4, multiplier=4, stem_multiplier=3,
                input_channels=3, shape=(3, 108, 108)):
     """
@@ -146,12 +145,11 @@ class Network(nn.Module):
     stem_multiplier : int
       multiplier of first conv num_filter
     """
-    super(Network,self).__init__()
+    super(SNAS,self).__init__()
 
     self._C = C
     self._num_classes = num_classes
     self._layers = layers
-    self._criterion = criterion
     self._steps = steps
     self._multiplier = multiplier
     h, w = shape[1], shape[2] # Just for calculating flop, mac
@@ -171,7 +169,7 @@ class Network(nn.Module):
         C_curr *= 2
         reduction = True
         h, w = [int(math.ceil(1.0 * x / 2)) for x in [h, w]]
-        assert h > 3 or w > 3
+        assert h >= 7 and w >= 7
       else:
         reduction = False 
       cell = Cell(steps, multiplier, C_prev_prev, C_prev, C_curr, 
@@ -185,30 +183,28 @@ class Network(nn.Module):
 
     self._initialize_alphas()
       
-  def forward(self, input , temperature):
+  def forward(self, input, temperature):
     s0 = s1 = self.stem(input)
     costs = 0
     for i, cell in enumerate(self.cells):
       if cell.reduction:
-        Z, score_function = self.architect_dist(self.alphas_reduce , 
-                                  temperature, s0.device)
+        Z = self.architect_dist(self.alphas_reduce , 
+                                  temperature)
       else:
-        Z, score_function = self.architect_dist(self.alphas_normal , 
-                                  temperature, s0.device)
-      s2, cost = cell(s0, s1, Z)
-      s0, s1 = s1, s2
+        Z = self.architect_dist(self.alphas_normal , 
+                                  temperature)
+      s0, (s1, cost) = s1, cell(s0, s1, Z)
       costs += cost
     out = self.global_pooling(s1) 
-    logits = self.classifier(out.view(out.size(0),-1))
-    return logits, score_function, costs
+    logits = self.classifier(out.view(out.size(0), -1))
+    return logits, costs
   
-  def architect_dist(self, alpha, temperature, device):
-    """Given temperature return a relaxed one hot.
+  def architect_dist(self, alpha, temperature):
+    """Given temperature return a relaxed one hot
     """
-    m = torch.distributions.relaxed_categorical.RelaxedOneHotCategorical(
-            torch.tensor([temperature]).to(device) , alpha)
-    r1, r2 = m.sample(), -m.log_prob(m.sample())
-    return r1, r2
+    weight = nn.functional.gumbel_softmax(alpha,
+                                temperature)
+    return weight
 
   def _initialize_alphas(self):
     k = sum(1 for i in range(self._steps) for n in range(2+i))
@@ -223,10 +219,170 @@ class Network(nn.Module):
         self.alphas_reduce,
     ]
 
+  @property
   def arch_parameters(self):
     return self._arch_parameters
-  
+
   def model_parameters(self):
     # Thanks to Chuanhong Huang
     params = self.named_parameters()
     return [p for n, p in params if n not in ['alphas_nomal', 'alphas_reduce']]
+
+class Trainer(object):
+  """Training network parameters and theta separately.
+  """
+  def __init__(self, network,
+               criterion,
+               w_lr=0.01,
+               w_mom=0.9,
+               w_wd=1e-4,
+               t_lr=0.001,
+               t_wd=3e-3,
+               t_beta=(0.5, 0.999),
+               init_temperature=5.0,
+               temperature_decay=0.965,
+               logger=logging,
+               lr_scheduler={'T_max' : 200},
+               gpus=[0],
+               save_theta_prefix=''):
+    assert isinstance(network, SNAS)
+    network.apply(weights_init)
+    network = network.train().cuda()
+    if isinstance(gpus, str):
+      gpus = [int(i) for i in gpus.strip().split(',')]
+      network = DataParallel(network, gpus)
+    self.gpus = gpus
+    self._mod = network
+    theta_params = network.arch_parameters
+    mod_params = network.parameters()
+    self.theta = theta_params
+    self.w = mod_params
+    self._tem_decay = temperature_decay
+    self.temp = init_temperature
+    self.logger = logger
+    self.save_theta_prefix = save_theta_prefix
+    self._criterion = criterion
+
+    self._loss_avg = AvgrageMeter('loss')
+
+    self.w_opt = torch.optim.SGD(
+                    mod_params,
+                    w_lr,
+                    momentum=w_mom,
+                    weight_decay=w_wd)
+    
+    self.w_sche = CosineDecayLR(self.w_opt, **lr_scheduler)
+
+    self.t_opt = torch.optim.Adam(
+                    theta_params,
+                    lr=t_lr, betas=t_beta,
+                    weight_decay=t_wd)
+
+  def train_w(self, input, target, decay_temperature=False):
+    """Update model parameters.
+    """
+    self.w_opt.zero_grad()
+    logits, costs = self._mod(input, self.temp)
+    loss = self._criterion(logits, target) + costs
+
+    loss.backward()
+    self.w_opt.step()
+    if decay_temperature:
+      tmp = self.temp
+      self.temp *= self._tem_decay
+      self.logger.info("Change temperature from %.5f to %.5f" % (tmp, self.temp))
+    return loss
+  
+  def train_t(self, input, target, decay_temperature=False):
+    """Update theta.
+    """
+    self.t_opt.zero_grad()
+    logits, costs = self._mod(input, self.temp)
+    loss = self._criterion(logits, target) + costs
+
+    loss.backward()
+    self.t_opt.step()
+    if decay_temperature:
+      tmp = self.temp
+      self.temp *= self._tem_decay
+      self.logger.info("Change temperature from %.5f to %.5f" % (tmp, self.temp))
+    return loss
+  
+  def decay_temperature(self, decay_ratio=None):
+    tmp = self.temp
+    if decay_ratio is None:
+      self.temp *= self._tem_decay
+    else:
+      self.temp *= decay_ratio
+    self.logger.info("Change temperature from %.5f to %.5f" % (tmp, self.temp))
+  
+  def _step(self, input, target, 
+            epoch, step,
+            log_frequence,
+            func):
+    """Perform one step of training.
+    """
+    input = input.cuda()
+    target = target.cuda()
+    loss = func(input, target)
+
+    # Get status
+    batch_size = self._mod.batch_size
+
+    self._loss_avg.update(loss)
+
+    if step > 1 and (step % log_frequence == 0):
+      self.toc = time.time()
+      speed = 1.0 * (batch_size * log_frequence) / (self.toc - self.tic)
+
+      self.logger.info("Epoch[%d] Batch[%d] Speed: %.6f samples/sec %s" 
+              % (epoch, step, speed, self._loss_avg))
+      map(lambda avg: avg.reset(), [self._loss_avg])
+      self.tic = time.time()
+  
+  def search(self, train_w_ds,
+            train_t_ds,
+            total_epoch=90,
+            start_w_epoch=10,
+            log_frequence=100):
+    """Search model.
+    """
+    assert start_w_epoch >= 1, "Start to train w"
+    self.tic = time.time()
+    for epoch in range(start_w_epoch):
+      self.logger.info("Start to train w for epoch %d" % epoch)
+      for step, (input, target) in enumerate(train_w_ds):
+        self._step(input, target, epoch, 
+                   step, log_frequence,
+                   lambda x, y: self.train_w(x, y, False))
+        self.w_sche.step()
+        # print(self.w_sche.last_epoch, self.w_opt.param_groups[0]['lr'])
+
+    self.tic = time.time()
+    for epoch in range(total_epoch):
+      self.logger.info("Start to train theta for epoch %d" % (epoch+start_w_epoch))
+      for step, (input, target) in enumerate(train_t_ds):
+        self._step(input, target, epoch + start_w_epoch, 
+                   step, log_frequence,
+                   lambda x, y: self.train_t(x, y, False))
+        self.save_theta('./theta-result/%s_theta_epoch_%d.txt' % 
+                    (self.save_theta_prefix, epoch+start_w_epoch))
+      self.decay_temperature()
+      self.logger.info("Start to train w for epoch %d" % (epoch+start_w_epoch))
+      for step, (input, target) in enumerate(train_w_ds):
+        self._step(input, target, epoch + start_w_epoch, 
+                   step, log_frequence,
+                   lambda x, y: self.train_w(x, y, False))
+        self.w_sche.step()
+
+  def save_theta(self, save_path='theta.txt'):
+    """Save theta.
+    """
+    res = []
+    with open(save_path, 'w') as f:
+      for t in self.theta:
+        t_list = list(t)
+        res.append(t_list)
+        s = ' '.join([str(tmp) for tmp in t_list])
+        f.write(s + '/n')
+    return res

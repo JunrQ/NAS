@@ -231,7 +231,8 @@ class Trainer(object):
       self.logger.info("Epoch[%d] Batch[%d] Speed: %.6f samples/sec %s %s %s %s" 
               % (epoch, step, speed, self._loss_avg, 
                  self._acc_avg, self._ce_avg, self._lat_avg))
-      map(lambda avg: avg.reset(), [self._acc_avg, self._ce_avg, self._lat_avg])
+      map(lambda avg: avg.reset(), [self._loss_avg, self._acc_avg, 
+                                    self._ce_avg, self._lat_avg])
       self.tic = time.time()
   
   def search(self, train_w_ds,
@@ -259,7 +260,7 @@ class Trainer(object):
         self._step(input, target, epoch + start_w_epoch, 
                    step, log_frequence,
                    lambda x, y: self.train_t(x, y, False))
-        self.save_theta('../theta-result/%s_theta_epoch_%d.txt' % 
+        self.save_theta('./theta-result/%s_theta_epoch_%d.txt' % 
                     (self.save_theta_prefix, epoch+start_w_epoch))
       self.decay_temperature()
       self.logger.info("Start to train w for epoch %d" % (epoch+start_w_epoch))
