@@ -67,7 +67,8 @@ def get_ds(args, traindir,
           transforms.RandomHorizontalFlip(),
           transforms.ToTensor(),
           normalize,]))
-  ds_folder.filter(num_cls_used, random_seed=random_seed)
+  if num_cls_used > 0:
+    ds_folder.filter(num_cls_used, random_seed=random_seed)
 
   num_train = len(ds_folder)
   indices = list(range(num_train))

@@ -79,7 +79,7 @@ train_transform = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
   ])
-train_data = dset.CIFAR10(root='../snas/', train=True, 
+train_data = dset.CIFAR10(root='../', train=True, 
                 download=True, transform=train_transform)
 
 num_train = len(train_data)
