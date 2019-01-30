@@ -130,6 +130,7 @@ class Trainer(object):
                w_wd=1e-4,
                t_lr=0.001,
                t_wd=3e-3,
+               t_beta=(0.5, 0.999),
                init_temperature=5.0,
                temperature_decay=0.965,
                logger=logging,
@@ -168,7 +169,7 @@ class Trainer(object):
 
     self.t_opt = torch.optim.Adam(
                     theta_params,
-                    lr=t_lr, betas=(0.9, 0.999),
+                    lr=t_lr, betas=t_beta,
                     weight_decay=t_wd)
 
   def train_w(self, input, target, decay_temperature=False):

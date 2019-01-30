@@ -24,6 +24,7 @@ class Config(object):
   w_wd = 1e-4
   t_lr = 0.01
   t_wd = 5e-4
+  t_beta = (0.5, 0.999)
   init_temperature = 5.0
   temperature_decay = 0.956
   model_save_path = '/mnt/data3/zcq/nas/fbnet-pytorch/'
@@ -86,6 +87,7 @@ trainer = Trainer(network=model,
                   w_wd=config.w_wd,
                   t_lr=config.t_lr,
                   t_wd=config.t_wd,
+                  t_beta=config.t_beta,
                   init_temperature=config.init_temperature,
                   temperature_decay=config.temperature_decay,
                   logger=_logger,
