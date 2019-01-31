@@ -276,8 +276,8 @@ class Trainer(object):
     res = []
     with open(save_path, 'w') as f:
       for t in self.theta:
-        t_list = list(t)
+        t_list = list(t.numpy())
         res.append(t_list)
         s = ' '.join([str(tmp) for tmp in t_list])
-        f.write(s + '/n')
+        f.write(s + '\n')
     return res
