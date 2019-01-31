@@ -20,7 +20,7 @@ def sample_fbnet(theta_path, feature_dim=192, data=None, prefix='fbnet'):
         4, 4, 4, 1,
         1]
 
-    _s = [1, 1, 2, 2,
+    _s = [2, 1, 2, 2,
         2, 1, 2, 1,
         1]
     _e = [1, 1, 3, 6,
@@ -61,13 +61,13 @@ def sample_fbnet(theta_path, feature_dim=192, data=None, prefix='fbnet'):
                     expansion = _e[block_idx]
                     stride = (s_size, s_size)
 
-                    data = mx.sym.BatchNorm(data=data, fix_gamma=False, eps=2e-5, momentum=0.9,
-                                    name="%slayer_%d_%d_bn" % (prefix, outer_layer_idx, inner_layer_idx))
+                    # data = mx.sym.BatchNorm(data=data, fix_gamma=False, eps=2e-5, momentum=0.9,
+                    #                 name="%slayer_%d_%d_bn" % (prefix, outer_layer_idx, inner_layer_idx))
 
                     block_out = block_factory(data, input_channels=input_channels,
                                         num_filters=num_filter, kernel_size=kernel_size,
                                         prefix=prefix_, expansion=expansion,
-                                        group=group, # shuffle=True,
+                                        group=group, shuffle=True,
                                         stride=stride, bn=False)
                     if (input_channels == num_filter) and (s_size == 1):
                         block_out = block_out + data

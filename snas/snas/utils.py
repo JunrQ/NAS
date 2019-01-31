@@ -8,26 +8,6 @@ import socket
 import sys
 import math
 
-class Config(object):
-  init_channels = 16
-  layers = 18
-  train_portion = 0.7
-  initial_temp = 2.5
-  anneal_rate = 0.99
-  epochs = 100
-  clip_gradient = 2.5
-  lr_arch = 0.001
-  lr_model = 0.01
-  wd_model = 5e-4
-  wd_arch = 1e-4
-  resource_constraint_weight = 1e-8
-  cutout = True
-  save_arch_frequence = 5
-  input_shape = (3, 32, 32)
-  anneal_frequence = 50
-  if cutout:
-    cutout_length = 16
-
 from torch.optim.lr_scheduler import _LRScheduler
 
 class CosineDecayLR(_LRScheduler):
@@ -119,22 +99,6 @@ def weights_init(m, deepth=0, max_depth=2):
   else:
     raise ValueError("%s is unk" % m.__class__.__name__)
 
-def loss(model, input, target, temperature, criterion):
-  """Given input, lable, temperature and criterion return loss.
-  """
-  logits, _, _ = model(input, temperature)
-  return criterion(logits, target) 
-
-def credit(model, input, target, temperature, criterion):
-  """Credits SNAS search gradients assign to each structural decision.
-  """
-  loss_ = loss(model, input, target, temperature, criterion)
-  dL = torch.autograd.grad(loss_, input)[0]
-  dL_dX = dL.view(-1)
-  X = input.view(-1)
-  credit = torch.dot(dL_dX.double() , X.double())
-  return credit
-
 def accuracy(output, target, topk=(1,)):
   maxk = max(topk)
   batch_size = target.size(0)
@@ -170,7 +134,6 @@ class Cutout(object):
         img *= mask
         return img
 
-
 def _data_transforms_cifar10(args):
   CIFAR_MEAN = [0.49139968, 0.48215827, 0.44653124]
   CIFAR_STD = [0.24703233, 0.24348505, 0.26158768]
@@ -190,26 +153,11 @@ def _data_transforms_cifar10(args):
     ])
   return train_transform, valid_transform
 
-
-def count_parameters_in_MB(model):
-  return np.sum(np.prod(v.size()) for name, v in model.named_parameters() if "auxiliary" not in name)/1e6
-
-
-def save_checkpoint(state, is_best, save):
-  filename = os.path.join(save, 'checkpoint.pth.tar')
-  torch.save(state, filename)
-  if is_best:
-    best_filename = os.path.join(save, 'model_best.pth.tar')
-    shutil.copyfile(filename, best_filename)
-
-
 def save(model, model_path):
   torch.save(model.state_dict(), model_path)
 
-
 def load(model, model_path):
   model.load_state_dict(torch.load(model_path))
-
 
 def drop_path(x, drop_prob):
   if drop_prob > 0.:

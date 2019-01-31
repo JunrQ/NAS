@@ -26,7 +26,7 @@ class Config(object):
   w_wd = 1e-4
   t_lr = 0.01
   t_wd = 5e-4
-  t_beta = (0.5, 0.999)
+  t_beta = (0.9, 0.999)
   init_temperature = 5.0
   temperature_decay = 0.956
   model_save_path = '/home1/nas/fbnet-pytorch/'

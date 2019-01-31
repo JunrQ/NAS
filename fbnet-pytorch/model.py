@@ -142,7 +142,7 @@ class Trainer(object):
     network = network.train().cuda()
     if isinstance(gpus, str):
       gpus = [int(i) for i in gpus.strip().split(',')]
-      network = DataParallel(network, gpus)
+    network = DataParallel(network, gpus)
     self.gpus = gpus
     self._mod = network
     theta_params = network.theta

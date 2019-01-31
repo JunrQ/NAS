@@ -11,7 +11,5 @@ My **MXNet** implementation of FBNet has some **weird** problems, so i reimpleme
 
 ## [SNAS](./snas)
 
-**TODO** My implementation of snas has problems.
-
 - [DARTS: Differentiable Architecture Search](https://arxiv.org/abs/1806.09055), forker from [darts](https://github.com/quark0/darts)
 - [SNAS: Stochastic Neural Architecture Search](https://arxiv.org/abs/1812.09926) **pytorch**

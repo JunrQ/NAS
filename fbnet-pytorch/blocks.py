@@ -33,7 +33,7 @@ class FBNetBlock(nn.Module):
   def __init__(self, C_in, C_out, kernel_size, stride,
               expansion, group, bn=False):
     super(FBNetBlock, self).__init__()
-    assert not bn, "not support for now"
+    assert not bn, "not support bn for now"
     bias_flag = not bn
     if group == 1:
       self.op = nn.Sequential(
@@ -55,22 +55,21 @@ class FBNetBlock(nn.Module):
         nn.Conv2d(C_in*expansion, C_in*expansion, 3, stride=stride, 
                   padding=1, groups=C_in*expansion, bias=bias_flag),
         nn.ReLU(inplace=False),
-        ChannelShuffle(group),
         nn.Conv2d(C_in*expansion, C_out, 1, stride=1, padding=0, 
                   groups=group, bias=bias_flag)
+        ChannelShuffle(group)
       )
     res_flag = ((C_in == C_out) and (stride == 1))
     self.res_flag = res_flag
-    if not res_flag:
-      if stride == 2:
-        self.trans = nn.Conv2d(C_in, C_out, 3, stride=2, 
-                              padding=1)
-      elif stride == 1:
-        pass
-        # self.trans = nn.Conv2d(C_in, C_out, 1, stride=1, 
-        #                       padding=0)
-      else:
-        raise ValueError("Wrong stride %d provided" % stride)
+    # if not res_flag:
+    #   if stride == 2:
+    #     self.trans = nn.Conv2d(C_in, C_out, 3, stride=2, 
+    #                           padding=1)
+    #   elif stride == 1:
+    #     self.trans = nn.Conv2d(C_in, C_out, 1, stride=1, 
+    #                           padding=0)
+    #   else:
+    #     raise ValueError("Wrong stride %d provided" % stride)
 
   def forward(self, x):
     if self.res_flag:
@@ -91,7 +90,7 @@ def get_blocks(cifar10=False):
         1, 1, 1, 1,
         1]
   else:
-    _s = [1, 1, 2, 2,
+    _s = [2, 1, 2, 2,
         2, 1, 2, 1,
         1]
   _e = [1, 1, 3, 6,
@@ -129,7 +128,3 @@ def get_blocks(cifar10=False):
   BLOCKS.append(nn.Conv2d(c_out, 1984, 1, padding=0))
   assert len(BLOCKS) == 24
   return BLOCKS
-
-
-
-

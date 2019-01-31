@@ -3,13 +3,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
+from torch.nn.parallel.data_parallel import DataParallel
 import math
 import time
 import logging
 
 from ops import *
 from utils import AvgrageMeter, weights_init, CosineDecayLR
-from data_parallel import DataParallel
 
 class MixedOp(nn.Module):
   def __init__(self, C, stride, h, w, ratio=1.0):
@@ -68,12 +68,11 @@ class MixedOp(nn.Module):
       self._ops.append(op)
       self.COSTS.append(FLOP + ratio * MAC)
 
-    self.cost = torch.tensor(sum(self.COSTS) / len(PRIMITIVES), 
-                             requires_grad=False).cuda()
-
   def forward(self, x, Z):
-    output = sum(z * op(x) for z, op in zip(Z, self._ops))
-    return output, self.cost
+    res = [op(x) for op in self._ops]
+    output = sum(z * tmp for z, tmp in zip(Z, res))
+    cost = sum(z * c for z, c in zip(Z, self.COSTS))
+    return output, cost
 
 
 class Cell(nn.Module):
@@ -121,7 +120,7 @@ class Cell(nn.Module):
       states.append(s)
       costs.append(cost)
     state = torch.cat(states[-self._multiplier:], dim=1)
-    cost_ = torch.mean(torch.tensor(costs[-self._multiplier:]))
+    cost_ = sum(costs[-self._multiplier:]) # / self._multiplier
     return state, cost_
 
 class SNAS(nn.Module):
@@ -137,7 +136,6 @@ class SNAS(nn.Module):
       number of classes of output
     layers : int
       number of layers
-    criterion
     steps : int
       block steps
     multiplier : int
@@ -147,11 +145,8 @@ class SNAS(nn.Module):
     """
     super(SNAS,self).__init__()
 
-    self._C = C
     self._num_classes = num_classes
-    self._layers = layers
     self._steps = steps
-    self._multiplier = multiplier
     h, w = shape[1], shape[2] # Just for calculating flop, mac
     assert input_channels == shape[0]
 
@@ -197,7 +192,7 @@ class SNAS(nn.Module):
       costs += cost
     out = self.global_pooling(s1) 
     logits = self.classifier(out.view(out.size(0), -1))
-    return logits, costs
+    return logits, costs / input.size()[0]
   
   def architect_dist(self, alpha, temperature):
     """Given temperature return a relaxed one hot
@@ -219,20 +214,21 @@ class SNAS(nn.Module):
         self.alphas_reduce,
     ]
 
-  @property
   def arch_parameters(self):
     return self._arch_parameters
 
   def model_parameters(self):
-    # Thanks to Chuanhong Huang
     params = self.named_parameters()
-    return [p for n, p in params if n not in ['alphas_nomal', 'alphas_reduce']]
+    res = []
+    for k in params:
+      if not ('alphas_nomal' in k[0] and 'alphas_reduce' in k[0]):
+        res.append(k[1])
+    return res
 
 class Trainer(object):
-  """Training network parameters and theta separately.
+  """Training network parameters and alpha.
   """
   def __init__(self, network,
-               criterion,
                w_lr=0.01,
                w_mom=0.9,
                w_wd=1e-4,
@@ -244,69 +240,63 @@ class Trainer(object):
                logger=logging,
                lr_scheduler={'T_max' : 200},
                gpus=[0],
-               save_theta_prefix=''):
+               save_theta_prefix='',
+               resource_weight=0.001):
     assert isinstance(network, SNAS)
     network.apply(weights_init)
     network = network.train().cuda()
+    self._criterion = nn.CrossEntropyLoss().cuda()
+
+    alpha_params = network.arch_parameters()
+    mod_params = network.model_parameters()
+    self.alpha = alpha_params
     if isinstance(gpus, str):
       gpus = [int(i) for i in gpus.strip().split(',')]
-      network = DataParallel(network, gpus)
-    self.gpus = gpus
+    network = DataParallel(network, gpus)
     self._mod = network
-    theta_params = network.arch_parameters
-    mod_params = network.parameters()
-    self.theta = theta_params
+    self.gpus = gpus
+
     self.w = mod_params
     self._tem_decay = temperature_decay
     self.temp = init_temperature
     self.logger = logger
     self.save_theta_prefix = save_theta_prefix
-    self._criterion = criterion
+    self._resource_weight = resource_weight
 
     self._loss_avg = AvgrageMeter('loss')
+    self._acc_avg = AvgrageMeter('acc')
+    self._res_cons_avg = AvgrageMeter('resource-constraint')
 
     self.w_opt = torch.optim.SGD(
                     mod_params,
                     w_lr,
                     momentum=w_mom,
                     weight_decay=w_wd)
-    
     self.w_sche = CosineDecayLR(self.w_opt, **lr_scheduler)
-
     self.t_opt = torch.optim.Adam(
-                    theta_params,
+                    alpha_params,
                     lr=t_lr, betas=t_beta,
                     weight_decay=t_wd)
 
-  def train_w(self, input, target, decay_temperature=False):
-    """Update model parameters.
+  def _acc(self, logits, target):
+    batch_size = target.size()[0]
+    pred = torch.argmax(logits, dim=1)
+    acc = torch.sum(pred == target).float() / batch_size
+    return acc
+
+  def train(self, input, target):
+    """Update parameters.
     """
     self.w_opt.zero_grad()
     logits, costs = self._mod(input, self.temp)
+    acc = self._acc(logits, target)
+    costs = costs.mean()
+    costs *= self._resource_weight
     loss = self._criterion(logits, target) + costs
-
     loss.backward()
     self.w_opt.step()
-    if decay_temperature:
-      tmp = self.temp
-      self.temp *= self._tem_decay
-      self.logger.info("Change temperature from %.5f to %.5f" % (tmp, self.temp))
-    return loss
-  
-  def train_t(self, input, target, decay_temperature=False):
-    """Update theta.
-    """
-    self.t_opt.zero_grad()
-    logits, costs = self._mod(input, self.temp)
-    loss = self._criterion(logits, target) + costs
-
-    loss.backward()
     self.t_opt.step()
-    if decay_temperature:
-      tmp = self.temp
-      self.temp *= self._tem_decay
-      self.logger.info("Change temperature from %.5f to %.5f" % (tmp, self.temp))
-    return loss
+    return loss, costs, acc
   
   def decay_temperature(self, decay_ratio=None):
     tmp = self.temp
@@ -324,65 +314,57 @@ class Trainer(object):
     """
     input = input.cuda()
     target = target.cuda()
-    loss = func(input, target)
+    loss, res_cost, acc = func(input, target)
 
     # Get status
-    batch_size = self._mod.batch_size
+    batch_size = input.size()[0]
 
     self._loss_avg.update(loss)
+    self._res_cons_avg.update(res_cost)
+    self._acc_avg.update(acc)
 
     if step > 1 and (step % log_frequence == 0):
       self.toc = time.time()
       speed = 1.0 * (batch_size * log_frequence) / (self.toc - self.tic)
 
-      self.logger.info("Epoch[%d] Batch[%d] Speed: %.6f samples/sec %s" 
-              % (epoch, step, speed, self._loss_avg))
-      map(lambda avg: avg.reset(), [self._loss_avg])
+      self.logger.info("Epoch[%d] Batch[%d] Speed: %.6f samples/sec %s %s %s" 
+              % (epoch, step, speed, self._loss_avg, self._acc_avg,
+                 self._res_cons_avg))
+      map(lambda avg: avg.reset(), [self._loss_avg, self._res_cons_avg,
+                                    self._acc_avg])
       self.tic = time.time()
   
-  def search(self, train_w_ds,
-            train_t_ds,
-            total_epoch=90,
-            start_w_epoch=10,
+  def search(self, train_ds,
+            epochs=90,
             log_frequence=100):
     """Search model.
     """
-    assert start_w_epoch >= 1, "Start to train w"
+
     self.tic = time.time()
-    for epoch in range(start_w_epoch):
-      self.logger.info("Start to train w for epoch %d" % epoch)
-      for step, (input, target) in enumerate(train_w_ds):
+    for epoch in range(epochs):
+      self.logger.info("Start to train for epoch %d" % (epoch))
+      for step, (input, target) in enumerate(train_ds):
         self._step(input, target, epoch, 
                    step, log_frequence,
-                   lambda x, y: self.train_w(x, y, False))
-        self.w_sche.step()
-        # print(self.w_sche.last_epoch, self.w_opt.param_groups[0]['lr'])
-
-    self.tic = time.time()
-    for epoch in range(total_epoch):
-      self.logger.info("Start to train theta for epoch %d" % (epoch+start_w_epoch))
-      for step, (input, target) in enumerate(train_t_ds):
-        self._step(input, target, epoch + start_w_epoch, 
-                   step, log_frequence,
-                   lambda x, y: self.train_t(x, y, False))
-        self.save_theta('./theta-result/%s_theta_epoch_%d.txt' % 
-                    (self.save_theta_prefix, epoch+start_w_epoch))
+                   lambda x, y: self.train(x, y))
+      self.save_alpha('./alpha-result/%s_theta_epoch_%d.txt' % 
+                  (self.save_theta_prefix, epoch))
       self.decay_temperature()
-      self.logger.info("Start to train w for epoch %d" % (epoch+start_w_epoch))
-      for step, (input, target) in enumerate(train_w_ds):
-        self._step(input, target, epoch + start_w_epoch, 
-                   step, log_frequence,
-                   lambda x, y: self.train_w(x, y, False))
-        self.w_sche.step()
+      self.w_sche.step()
 
-  def save_theta(self, save_path='theta.txt'):
-    """Save theta.
+  def save_alpha(self, save_path='alpha.txt'):
+    """Save alpha.
     """
     res = []
     with open(save_path, 'w') as f:
-      for t in self.theta:
-        t_list = list(t)
-        res.append(t_list)
-        s = ' '.join([str(tmp) for tmp in t_list])
-        f.write(s + '/n')
+      for i, t in enumerate(self.alpha):
+        n = 'normal' if i == 0 else 'reduce'
+        assert i <= 1
+        tmp = t.size(0)
+        f.write(n + ':' + '\n')
+        for j in range(tmp):
+          t_list = list(t[j].detach().cpu().numpy())
+          res.append(t_list)
+          s = ' '.join([str(tmp) for tmp in t_list])
+          f.write(s + '\n')
     return res

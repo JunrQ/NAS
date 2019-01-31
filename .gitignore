@@ -8,6 +8,5 @@
 fbnet/model/
 *.tar.gz
 snas/cifar-10-batches-py/
-*.npy
-*.pt
 /fbnet-pytorch/theta-result/
+/snas/snas/alpha-result/
