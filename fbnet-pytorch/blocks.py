@@ -56,7 +56,7 @@ class FBNetBlock(nn.Module):
                   padding=1, groups=C_in*expansion, bias=bias_flag),
         nn.ReLU(inplace=False),
         nn.Conv2d(C_in*expansion, C_out, 1, stride=1, padding=0, 
-                  groups=group, bias=bias_flag)
+                  groups=group, bias=bias_flag),
         ChannelShuffle(group)
       )
     res_flag = ((C_in == C_out) and (stride == 1))
