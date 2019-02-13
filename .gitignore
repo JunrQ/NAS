@@ -10,3 +10,4 @@ fbnet/model/
 snas/cifar-10-batches-py/
 /fbnet-pytorch/theta-result/
 /snas/snas/alpha-result/
+/cifar-10-batches-py

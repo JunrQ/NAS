@@ -77,7 +77,7 @@ class FBNetBlock(nn.Module):
     else:
       return self.op(x) # + self.trans(x)
 
-def get_blocks(cifar10=False):
+def get_blocks(cifar10=False, face=False):
   BLOCKS = []
   _f = [16, 16, 24, 32, 
       64, 112, 184, 352,
@@ -86,8 +86,14 @@ def get_blocks(cifar10=False):
       4, 4, 4, 1,
       1]
   if cifar10:
+    assert not face
     _s = [1, 1, 2, 2,
         1, 1, 1, 1,
+        1]
+  elif face:
+    assert not cifar10
+    _s = [1, 1, 2, 2,
+        2, 1, 2, 1,
         1]
   else:
     _s = [2, 1, 2, 2,
