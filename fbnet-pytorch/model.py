@@ -34,7 +34,8 @@ class FBNet(nn.Module):
                init_theta=1.0,
                speed_f='./speed.txt',
                alpha=0.2,
-               beta=0.6):
+               beta=0.6,
+               dim_feature=1984):
     super(FBNet, self).__init__()
     init_func = lambda x: nn.init.constant_(x, init_theta)
     
@@ -76,7 +77,7 @@ class FBNet(nn.Module):
     assert len(self.theta) == 22
     with open(speed_f, 'r') as f:
       self._speed = f.readlines()
-    self.classifier = nn.Linear(1984, num_classes)
+    self.classifier = nn.Linear(dim_feature, num_classes)
 
   def forward(self, input, target, temperature=5.0, theta_list=None):
     batch_size = input.size()[0]

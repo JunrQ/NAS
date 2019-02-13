@@ -221,7 +221,7 @@ class SNAS(nn.Module):
     params = self.named_parameters()
     res = []
     for k in params:
-      if not ('alphas_nomal' in k[0] and 'alphas_reduce' in k[0]):
+      if not ('alphas_nomal' in k[0] or 'alphas_reduce' in k[0]):
         res.append(k[1])
     return res
 

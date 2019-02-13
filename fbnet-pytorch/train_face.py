@@ -9,16 +9,16 @@ import os
 
 from model import Trainer, FBNet
 from data_face import get_face_ds
-from blocks import get_blocks
+from blocks_custom import get_blocks
 from utils import _logger, _set_file
 
 
 class Config(object):
-  num_cls_used = 2000
+  num_cls_used = 4000
   init_theta = 1.0
   alpha = 0.2
   beta = 0.6
-  speed_f = './speed_cpu.txt'
+  speed_f = './speed_custom.txt'
   w_lr = 0.1
   w_mom = 0.9
   w_wd = 1e-4
@@ -79,7 +79,8 @@ model = FBNet(num_classes=num_classes,
               init_theta=config.init_theta,
               alpha=config.alpha,
               beta=config.beta,
-              speed_f=config.speed_f)
+              speed_f=config.speed_f,
+              dim_feature=192)
 
 trainer = Trainer(network=model,
                   w_lr=config.w_lr,
@@ -93,7 +94,7 @@ trainer = Trainer(network=model,
                   logger=_logger,
                   lr_scheduler=lr_scheduler_params,
                   gpus=args.gpus,
-                  save_theta_prefix='face')
+                  save_theta_prefix='face_blks')
 
 trainer.search(train_queue, val_queue,
                total_epoch=config.total_epoch,
