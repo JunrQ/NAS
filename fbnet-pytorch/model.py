@@ -74,7 +74,7 @@ class FBNet(nn.Module):
         break
     self._output_conv = nn.Sequential(*tmp)
 
-    assert len(self.theta) == 22
+    # assert len(self.theta) == 22
     with open(speed_f, 'r') as f:
       self._speed = f.readlines()
     self.classifier = nn.Linear(dim_feature, num_classes)

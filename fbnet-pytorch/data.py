@@ -3,6 +3,7 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
 import numpy as np
+import pickle
 
 class FBNet_ds(datasets.ImageFolder):
   """Image net ds folder for fbnet.
@@ -13,9 +14,23 @@ class FBNet_ds(datasets.ImageFolder):
   
   def filter(self,
              samples_classes=100,
-             random_seed=None):
+             random_seed=None,
+             restore=False):
     """Get \a samples_classes from total ds.
     """
+    if restore:
+      try:
+        with open('./tmp/classes.pkl', 'rb') as f:
+          self.classes = pickle.load(f)
+        if samples_classes == len(self.classes):
+          with open('./tmp/class_to_idx.pkl', 'rb') as f:
+            self.class_to_idx = pickle.load(f)
+          with open('./tmp/samples.pkl', 'rb') as f:
+            self.samples = pickle.load(f)
+          return
+      except Exception, e:
+        print(e)
+        pass
     _num_classes =  len(self.classes)
     if not random_seed is None:
       assert isinstance(random_seed, int)
@@ -30,17 +45,24 @@ class FBNet_ds(datasets.ImageFolder):
         _cls_map[v] = cls_id
         cls_id += 1
     self.class_to_idx = _class_to_idx
+    with open('./tmp/class_to_idx.pkl', 'wb') as f:
+      pickle.dump(self.class_to_idx, f)
 
     _samples = []
     for item in self.samples:
       if item[1] in choosen_cls_idx:
         _samples.append((item[0], _cls_map[item[1]]))
     self.samples = _samples
+    with open('./tmp/samples.pkl', 'wb') as f:
+      pickle.dump(self.samples, f)
+
     _classes = []
     for c in self.classes:
       if _class_to_idx.has_key(c):
         _classes.append(c)
     self.classes = _classes
+    with open('./tmp/classes.pkl', 'wb') as f:
+      pickle.dump(self.classes, f)
 
 def get_ds(args, traindir,
            train_portion=0.8,

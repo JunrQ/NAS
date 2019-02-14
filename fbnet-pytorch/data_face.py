@@ -3,6 +3,7 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import numpy as np
 import torch
+import os
 
 from data import FBNet_ds
 
@@ -52,7 +53,10 @@ def get_face_ds(args, traindir,
           transforms.ToTensor(),
           normalize,]))
   if num_cls_used > 0:
-    ds_folder.filter(num_cls_used, random_seed=random_seed)
+    restore = False
+    if os.path.exists('./tmp/classes.pkl'):
+      restore = True
+    ds_folder.filter(num_cls_used, random_seed=random_seed, restore=restore)
     num_class = num_cls_used
   else:
     num_class = len(ds_folder.classes)
