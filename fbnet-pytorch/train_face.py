@@ -16,7 +16,7 @@ from utils import _logger, _set_file
 class Config(object):
   num_cls_used = 4000
   init_theta = 1.0
-  alpha = 0.2
+  alpha = 10.0
   beta = 0.6
   speed_f = './speed_custom.txt'
   w_lr = 0.1
