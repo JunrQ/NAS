@@ -154,7 +154,7 @@ class Identity(nn.Module):
 
 def get_blocks(cifar10=False, face=False):
   BLOCKS = []
-  _f = [64, 256, 512, 1024, 2048]
+  _f = [32, 112, 184, 352, 1024]
   _n = [3, 4, 6, 3]
   if cifar10:
     assert False
@@ -162,7 +162,7 @@ def get_blocks(cifar10=False, face=False):
     assert not cifar10
   else:
     assert False
-  _group = [1, 4, 1, 4, 1]
+  _group = [1, 2, 1, 2, 1]
   BLOCKS.append(nn.Conv2d(3, _f[0], 3, 1, padding=1))
   
   c_in = _f[0]
