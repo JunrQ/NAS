@@ -21,12 +21,15 @@ class FBNet_ds(datasets.ImageFolder):
     if restore:
       try:
         with open('./tmp/classes.pkl', 'rb') as f:
-          self.classes = pickle.load(f)
-        if samples_classes == len(self.classes):
+          _classes = pickle.load(f)
+        if samples_classes == len(_classes):
           with open('./tmp/class_to_idx.pkl', 'rb') as f:
-            self.class_to_idx = pickle.load(f)
+            _class_to_idx = pickle.load(f)
           with open('./tmp/samples.pkl', 'rb') as f:
-            self.samples = pickle.load(f)
+            _samples = pickle.load(f)
+          self.classes = _classes
+          self.class_to_idx = _class_to_idx
+          self.samples = _samples
           return
       except Exception, e:
         print(e)
@@ -35,7 +38,8 @@ class FBNet_ds(datasets.ImageFolder):
     if not random_seed is None:
       assert isinstance(random_seed, int)
       np.random.seed(random_seed)
-    choosen_cls_idx = list(np.random.choice(list(range(_num_classes)), samples_classes))
+    choosen_cls_idx = list(np.random.choice(list(range(_num_classes)), 
+                                            samples_classes))
     _class_to_idx = {}
     cls_id = 0
     _cls_map = dict()
@@ -44,6 +48,17 @@ class FBNet_ds(datasets.ImageFolder):
         _class_to_idx[k] = cls_id
         _cls_map[v] = cls_id
         cls_id += 1
+    if cls_id < samples_classes:
+      # missing_num = samples_classes - cls_id
+      for k, v in self.class_to_idx.items():
+        if v not in choosen_cls_idx:
+          _class_to_idx[k] = cls_id
+          _cls_map[v] = cls_id
+          cls_id += 1
+        if cls_id == samples_classes:
+          break
+    assert len(_class_to_idx.keys()) == samples_classes, \
+        "%d vs %d" % (len(_class_to_idx.keys()), samples_classes)
     self.class_to_idx = _class_to_idx
     with open('./tmp/class_to_idx.pkl', 'wb') as f:
       pickle.dump(self.class_to_idx, f)
@@ -56,11 +71,7 @@ class FBNet_ds(datasets.ImageFolder):
     with open('./tmp/samples.pkl', 'wb') as f:
       pickle.dump(self.samples, f)
 
-    _classes = []
-    for c in self.classes:
-      if _class_to_idx.has_key(c):
-        _classes.append(c)
-    self.classes = _classes
+    self.classes = list(_class_to_idx.keys())
     with open('./tmp/classes.pkl', 'wb') as f:
       pickle.dump(self.classes, f)
 
