@@ -20,12 +20,12 @@ class FBNet_ds(datasets.ImageFolder):
     """
     if restore:
       try:
-        with open('./tmp/classes.pkl', 'rb') as f:
+        with open('./tmp/classes_%d.pkl' % samples_classes, 'rb') as f:
           _classes = pickle.load(f)
         if samples_classes == len(_classes):
-          with open('./tmp/class_to_idx.pkl', 'rb') as f:
+          with open('./tmp/class_to_idx_%d.pkl' % samples_classes, 'rb') as f:
             _class_to_idx = pickle.load(f)
-          with open('./tmp/samples.pkl', 'rb') as f:
+          with open('./tmp/samples_%d.pkl' % samples_classes, 'rb') as f:
             _samples = pickle.load(f)
           self.classes = _classes
           self.class_to_idx = _class_to_idx
@@ -60,7 +60,7 @@ class FBNet_ds(datasets.ImageFolder):
     assert len(_class_to_idx.keys()) == samples_classes, \
         "%d vs %d" % (len(_class_to_idx.keys()), samples_classes)
     self.class_to_idx = _class_to_idx
-    with open('./tmp/class_to_idx.pkl', 'wb') as f:
+    with open('./tmp/class_to_idx_%d.pkl' % samples_classes, 'wb') as f:
       pickle.dump(self.class_to_idx, f)
 
     _samples = []
@@ -68,11 +68,11 @@ class FBNet_ds(datasets.ImageFolder):
       if item[1] in choosen_cls_idx:
         _samples.append((item[0], _cls_map[item[1]]))
     self.samples = _samples
-    with open('./tmp/samples.pkl', 'wb') as f:
+    with open('./tmp/samples_%d.pkl' % samples_classes, 'wb') as f:
       pickle.dump(self.samples, f)
 
     self.classes = list(_class_to_idx.keys())
-    with open('./tmp/classes.pkl', 'wb') as f:
+    with open('./tmp/classes_%d.pkl' % samples_classes, 'wb') as f:
       pickle.dump(self.classes, f)
 
 def get_ds(args, traindir,

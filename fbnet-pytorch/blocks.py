@@ -107,7 +107,7 @@ def get_blocks(cifar10=False, face=False):
           1, 2, 1, 1]
   tbs_range = slice(1, 8) # [1, 7]
 
-  BLOCKS.append(nn.Conv2d(3, 16, 3, 2, padding=1))
+  BLOCKS.append(nn.Conv2d(3, 16, 3, _s[0], padding=1))
   
   c_in = 16
   for n_idx in range(len(_n))[tbs_range]:
