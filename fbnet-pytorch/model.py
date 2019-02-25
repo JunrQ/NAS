@@ -77,7 +77,8 @@ class FBNet(nn.Module):
     # assert len(self.theta) == 22
     with open(speed_f, 'r') as f:
       self._speed = f.readlines()
-    self.classifier = nn.Linear(dim_feature, num_classes)
+    self.classifier = nn.Sequential(nn.BatchNorm2d(dim_feature), 
+                                    nn.Linear(dim_feature, num_classes))
 
   def forward(self, input, target, temperature=5.0, theta_list=None):
     batch_size = input.size()[0]

@@ -194,5 +194,6 @@ def get_blocks(cifar10=False, face=False):
       stride = 1
       c_in = c_out
   BLOCKS.append(nn.Conv2d(c_out, 192, 1, padding=0))
+  # BLOCKS.append(nn.BatchNorm2d(192))
   assert len(BLOCKS) == 18
   return BLOCKS
