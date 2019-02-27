@@ -15,7 +15,6 @@ def scalar2int(t):
 class MixedBlocks(nn.Module):
   """Mixed blks.
   """
-
   def __init__(self, reduction, in_channels, out_channels):
     """
     Parameters
@@ -27,6 +26,8 @@ class MixedBlocks(nn.Module):
     out_channels : int
       number of output channels
     """
+    # TODO there should be an edge between every two op
+    assert False
     if not reduction:
       dp_conv_name = DepthConvLayer.__name__
       cfgs = [
@@ -158,7 +159,7 @@ class MixedMBBlocks(nn.Module):
       m = torch.distributions.categorical.Categorical(self.params)
       choosen_idxs = m.sample(1)
       choosen_idxs = scalar2int(choosen_idxs)
-      return self.blks[choosen_idxs](x)
+      return self.blks[choosen_idxs](x), choosen_idxs
     else:
       m = torch.distributions.multinomial.Multinomial(2, self.params)
       choosen_idxs = m.sample()
@@ -169,7 +170,7 @@ class MixedMBBlocks(nn.Module):
       weight = torch.softmax(self.params[choosen_idxs], 0)
       # Assume this is weighted sum
       g = [self.blks[idx] * w for idx, w in zip(choosen_idxs, weight)]
-      return reduce(lambda x, y: x + y, g)
+      return reduce(lambda x, y: x + y, g), choosen_idxs
 
 
 class ProxylessNASSearcher(BasicUnit):
@@ -185,36 +186,43 @@ class ProxylessNASSearcher(BasicUnit):
     self.classifier = classifier
     self._num_layers = len(self.blocks)
 
+    self.params = [b.params for b in blocks]
+
   def forward(self, x, train=True, search=False):
     x = self.first_conv(x)
 
     if train:
       assert not search
       for blk in self.blocks:
-        x = blk(x, train=train, search=search)
+        x, idx = blk(x, train=train, search=search)
       
     else:
-      self.p = []
+      g = []
+      idx = []
       for blk in self.blocks:
-        x = blk(x, train=train, search=search)
-        self.p.append(x)
-
+        x, i = blk(x, train=train, search=search)
+        g.append(x)
+        idx.append(i)
 
     if self.feature_mix_layer:
 			x = self.feature_mix_layer(x)
     x = self.global_avg_pooling(x)
-    x = x.view(x.size(0), -1)  # flatten
+    # x = x.view(x.size(0), -1)  # flatten
+
+    if train:
+      return x
+    else:
+      return x, p, idx
 
 
 class Trainer(object):
-
-  
-
   def __init__(self,
                first_conv_filter=32,
                num_layers=12,
                stride=[3, 6, 9],
-               filters=[64, 128, 512, 1024]):
+               filters=[64, 128, 512, 1024],
+               feature_dim=192,
+               num_classes=100):
     """
     Parameters
     ----------
@@ -243,21 +251,41 @@ class Trainer(object):
 
       in_channels = out_channels
     
-    first_conv_layer = nn.Conv2d(first_conv_filter, filters[0], 3)
-    feature_mix_layer = 
-    classifier = 
-    proxyless = ProxylessNASSearcher(first_conv=first_conv_layer,
+    first_conv_layer = ConvLayer(first_conv_filter, filters[0], 3)
+    feature_mix_layer = ConvLayer(filters[-1], feature_dim, 3)
+    classifier = LinearLayer(feature_dim, num_classes,
+                              bias=False, use_bn=True,
+                              ops_order='bn_weight_act',
+                              act_func=None)
+    self.proxyless = ProxylessNASSearcher(first_conv=first_conv_layer,
         blocks=self.blks, feature_mix_layer=feature_mix_layer,
         classifier=classifier)
-    
-
-      
-
-
   
   def train_arch(self, input, target):
     """Train architecture parameters.
 
     """
+    pass
+
+
+  def _step_search(self, input, target):
+
+    """One step.
+    """
+    output, g, idx = self.proxyless(input, search=True, train=False)
+
+    loss = 
+
+    loss.backward()
+
+    grad_a = g.grad
+
+
+
+
+
+
+
+
 
 
