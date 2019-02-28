@@ -2,15 +2,16 @@ from layers import *
 from torch import nn
 
 from functools import reduce
+import time
 
 def tensor2list(t):
   """Transfer torch.tensor to list.
   """
-  return list(t.long().numpy())
+  return list(t.detach().long().numpy())
 def scalar2int(t):
   """Transfer scalar to int.
   """
-  return int(t.long().numpy())
+  return int(t.detach().long().numpy())
 
 class MixedBlocks(nn.Module):
   """Mixed blks.
@@ -151,7 +152,9 @@ class MixedMBBlocks(nn.Module):
     self._num_blks = len(cfgs)
 
     # Define architecture parameters
-    self.params = torch.tensor(torch.randn(self._num_blks), requires_grad=False)
+    self.params = torch.tensor(torch.randn(self._num_blks), requires_grad=True)
+
+    self.latency = [-1] * self._num_blks
   
   def forward(self, x, train=True, search=False):
     if train:
@@ -188,6 +191,9 @@ class ProxylessNASSearcher(BasicUnit):
 
     self.params = [b.params for b in blocks]
 
+    for i, p in enumerate(self.params):
+      self.register_parameter('arch_param_layer_%d' % i, p)
+
   def forward(self, x, train=True, search=False):
     x = self.first_conv(x)
 
@@ -212,7 +218,7 @@ class ProxylessNASSearcher(BasicUnit):
     if train:
       return x
     else:
-      return x, p, idx
+      return x, g, idx
 
 
 class Trainer(object):
@@ -222,7 +228,13 @@ class Trainer(object):
                stride=[3, 6, 9],
                filters=[64, 128, 512, 1024],
                feature_dim=192,
-               num_classes=100):
+               num_classes=100,
+               w_lr=0.01,
+               w_mom=0.9,
+               w_wd=1e-4,
+               t_lr=0.001,
+               t_wd=3e-3,
+               t_beta=(0.5, 0.999)):
     """
     Parameters
     ----------
@@ -242,7 +254,7 @@ class Trainer(object):
 
     stage_count = 0
     for i in range(num_layers):
-      reduction = i in [stride]
+      reduction = (i in [stride])
       if reduction:
         stage_count += 1
         out_channels = filters[stage_count]
@@ -260,25 +272,62 @@ class Trainer(object):
     self.proxyless = ProxylessNASSearcher(first_conv=first_conv_layer,
         blocks=self.blks, feature_mix_layer=feature_mix_layer,
         classifier=classifier)
+    
+    self.ce_loss = torch.nn.CrossEntropyLoss()
+    self.arch_params = self.proxyless.params
+
+    self.w_params = []
+    for n, p in self.proxyless.named_parameters():
+      if not 'arch_param_layer' in n:
+        self.w_params.append(p)
+    
+    self.w_opt = torch.optim.SGD(
+                    self.w_params,
+                    w_lr,
+                    momentum=w_mom,
+                    weight_decay=w_wd)
+    
+    self.t_opt = torch.optim.Adam(
+                    self.arch_params,
+                    lr=t_lr, betas=t_beta,
+                    weight_decay=t_wd)
+    
+
+
   
   def train_arch(self, input, target):
     """Train architecture parameters.
 
     """
     pass
-
-
-  def _step_search(self, input, target):
-
-    """One step.
+  
+  def _step_train(self, input, target):
+    """Perform one step of $w$ training.
     """
-    output, g, idx = self.proxyless(input, search=True, train=False)
+    output = self.proxyless(input, search=False, train=True)
 
-    loss = 
+    loss = self.ce_loss(output, target)
 
     loss.backward()
 
-    grad_a = g.grad
+
+  def _step_search(self, input, target):
+    """Perform one step of $\alpha$ training.
+    """
+    output, g, idx = self.proxyless(input, search=True, train=False)
+
+    loss = self.ce_loss(output, target)
+
+    loss.backward()
+
+    for tbs_idx, g_ind in enumerate(g):
+      grad_ind = g_ind.grad
+
+      alpha = self.params[tbs_idx]
+
+      alpha.backward(grad_ind)
+
+
 
 
 
