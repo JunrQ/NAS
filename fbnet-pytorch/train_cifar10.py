@@ -12,6 +12,7 @@ import os
 from model import Trainer, FBNet
 from data import get_ds
 from blocks import get_blocks
+# from blocks_custom_v1 import get_blocks
 from utils import _logger, _set_file
 
 
@@ -101,7 +102,8 @@ model = FBNet(num_classes=config.num_cls_used if config.num_cls_used > 0 else 10
               init_theta=config.init_theta,
               alpha=config.alpha,
               beta=config.beta,
-              speed_f=config.speed_f)
+              speed_f=config.speed_f,
+              dim_feature=1984)
 
 trainer = Trainer(network=model,
                   w_lr=config.w_lr,
