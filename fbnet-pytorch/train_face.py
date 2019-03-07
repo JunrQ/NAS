@@ -9,16 +9,16 @@ import os
 
 from model import Trainer, FBNet
 from data_face import get_face_ds
-from blocks_custom import get_blocks
+from blocks_custom_v1 import get_blocks
 from utils import _logger, _set_file
 
 
 class Config(object):
-  num_cls_used = 4000
+  num_cls_used = 20000
   init_theta = 1.0
   alpha = 10.0
   beta = 0.6
-  speed_f = './speed_custom.txt'
+  speed_f = './speed_custom_v1.txt'
   w_lr = 0.1
   w_mom = 0.9
   w_wd = 1e-4

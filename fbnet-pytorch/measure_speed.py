@@ -3,7 +3,7 @@ import torch
 
 def measure(blocks, 
             input_shape = (1, 3, 108, 108),
-            result_path='speed_custom.txt'):
+            result_path='speed_custom_v1.txt'):
 
   times = 2000
   f = open(result_path, 'w')
@@ -32,8 +32,7 @@ def measure(blocks,
   f.close()
 
 
-from blocks_custom import get_blocks
+from blocks_custom_v1 import get_blocks
 
 blks = get_blocks(face=True)
 measure(blks)
-        
