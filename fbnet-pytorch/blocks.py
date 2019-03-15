@@ -35,13 +35,23 @@ class FBNetBlock(nn.Module):
     super(FBNetBlock, self).__init__()
     assert not bn, "not support bn for now"
     bias_flag = not bn
+    if kernel_size == 1:
+      padding = 0
+    elif kernel_size == 3:
+      padding = 1
+    elif kernel_size == 5:
+      padding = 2
+    elif kernel_size == 7:
+      padding = 3
+    else:
+      raise ValueError("Not supported kernel_size %d" % kernel_size)
     if group == 1:
       self.op = nn.Sequential(
         nn.Conv2d(C_in, C_in*expansion, 1, stride=1, padding=0,
                   groups=group, bias=bias_flag),
         nn.ReLU(inplace=False),
         nn.Conv2d(C_in*expansion, C_in*expansion, kernel_size, stride=stride, 
-                  padding=1, groups=C_in*expansion, bias=bias_flag),
+                  padding=padding, groups=C_in*expansion, bias=bias_flag),
         nn.ReLU(inplace=False),
         nn.Conv2d(C_in*expansion, C_out, 1, stride=1, padding=0, 
                   groups=group, bias=bias_flag)
@@ -53,7 +63,7 @@ class FBNetBlock(nn.Module):
         nn.ReLU(inplace=False),
         ChannelShuffle(group),
         nn.Conv2d(C_in*expansion, C_in*expansion, kernel_size, stride=stride, 
-                  padding=1, groups=C_in*expansion, bias=bias_flag),
+                  padding=padding, groups=C_in*expansion, bias=bias_flag),
         nn.ReLU(inplace=False),
         nn.Conv2d(C_in*expansion, C_out, 1, stride=1, padding=0, 
                   groups=group, bias=bias_flag),
