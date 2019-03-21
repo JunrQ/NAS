@@ -83,7 +83,8 @@ class MixedOp(nn.Module):
         FLOP = 0
         MAC = 0
       if 'pool' in primitive:
-        FLOP = self.width * self.height * 9 * (C ** 2)
+        # FLOP = self.width * self.height * 9 * (C ** 2)
+        FLOP = self.width * self.height * 9 * C
         MAC = self.width * self.height * 2 * C
       self._ops.append(op)
       self.COSTS.append(FLOP + ratio * MAC)
