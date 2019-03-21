@@ -10,7 +10,8 @@ def get_blocks(cifar10=False, face=False):
   _f = [64, 128, 256, 512, 1024]
   _n = [2, 2, 2, 2]
   if cifar10:
-    assert False
+    # assert False
+    pass
   elif face:
     assert not cifar10
   else:

@@ -28,7 +28,7 @@ class Config(object):
   t_lr = 3e-4
   t_wd = 1e-3
   t_beta = (0.5, 0.999)
-  resource_constraint_weight = 1e-6
+  resource_constraint_weight = 1e-9
   cutout = True
   if cutout:
     cutout_length = 16

@@ -31,7 +31,7 @@ class FBNet_ds(datasets.ImageFolder):
           self.class_to_idx = _class_to_idx
           self.samples = _samples
           return
-      except Exception, e:
+      except Exception as e:
         print(e)
         pass
     _num_classes =  len(self.classes)

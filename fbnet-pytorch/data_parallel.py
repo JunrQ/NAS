@@ -34,7 +34,6 @@ class DataParallel(torch.nn.Module):
   def forward(self, *inputs, **kwargs):
     batch_size = inputs[0].size()[0]
     self.batch_size = batch_size
-    # assert batch_size % len(self.device_ids) == 0
 
     # Data parallel
     inputs, kwargs = scatter_kwargs(inputs, kwargs, self.device_ids)

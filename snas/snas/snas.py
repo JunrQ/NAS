@@ -37,25 +37,42 @@ class MixedOp(nn.Module):
       if 'sep' in primitive:
         FLOP = 0
         MAC = 0
-        FLOP1 = (self.height * self.width * op.op[1].kernel_size[0]**2 \
-                 * op.op[1].in_channels * op.op[1].out_channels )
-        FLOP1 = FLOP / op.op[1].groups
-        FLOP2 = (self.height * self.width * op.op[1].kernel_size[0]**2)
-        FLOP = (FLOP1 + FLOP2) * 2
-        MAC1 = self.height * self.width * (op.op[1].in_channels + op.op[1].out_channels)
-        MAC1 = MAC1 + (op.op[1].in_channels * op.op[1].out_channels) 
-        MAC2 = MAC1 + (op.op[1].in_channels * op.op[1].out_channels)/ op.op[1].groups
-        MAC = (MAC1 + MAC2) * 2
+        FLOP1 = self.height * self.width * op.op[1].kernel_size[0] ** 2 \
+                * op.op[1].in_channels * op.op[1].out_channels / op.op[1].groups
+        FLOP2 = self.height * self.width \
+                * op.op[2].in_channels * op.op[2].out_channels
+        FLOP3 = FLOP1
+        FLOP4 = self.height * self.width \
+                * op.op[6].in_channels * op.op[6].out_channels
+        FLOP = FLOP1 + FLOP2 + FLOP3 + FLOP4
+
+        MAC1 = self.height * self.width * \
+              (op.op[1].in_channels + op.op[1].out_channels)
+        MAC1 += (op.op[1].in_channels * op.op[1].out_channels * \
+                op.op[1].kernel_size[0] ** 2 / op.op[1].groups)
+        MAC3 = MAC1
+
+        MAC2 = self.height * self.width * \
+              (op.op[2].in_channels + op.op[2].out_channels) + \
+              op.op[2].in_channels * op.op[2].out_channels
+
+        MAC4 = self.height * self.width * \
+              (op.op[6].in_channels + op.op[6].out_channels) + \
+              op.op[6].in_channels * op.op[6].out_channels
+        MAC = MAC1 + MAC2 + MAC3 + MAC4
 
       if 'dil' in primitive:
-        FLOP = (self.width * self.height * op.op[1].in_channels * op.op[1].out_channels\
+        # H * W * f * k * I * O / g
+        FLOP = (self.width * self.height * op.op[1].in_channels * op.op[1].out_channels \
                 * op.op[1].kernel_size[0] ** 2) / op.op[1].groups
         FLOP += (self.width * self.height * op.op[2].in_channels * op.op[2].out_channels) 
         
-        MAC1 = (self.width * self.height) * (op.op[1].in_channels + op.op[1].in_channels)
-        MAC1 += (op.op[1].kernel_size[0] ** 2 *op.op[1].in_channels * op.op[1].out_channels) / op.op[1].groups
-        MAC2 = (self.width * self.height) * (op.op[2].in_channels + op.op[2].in_channels)
-        MAC2 += (op.op[2].kernel_size[0] ** 2 *op.op[2].in_channels * op.op[2].out_channels) / op.op[2].groups
+        # size of input/output feature maps and kernel weights
+        # H * W * (I + O) + f * k * I * O / g
+        MAC1 = (self.width * self.height) * (op.op[1].in_channels + op.op[1].out_channels)
+        MAC1 += (op.op[1].kernel_size[0] ** 2 * op.op[1].in_channels * op.op[1].out_channels) / op.op[1].groups
+        MAC2 = (self.width * self.height) * (op.op[2].in_channels + op.op[2].out_channels)
+        MAC2 += (op.op[2].in_channels * op.op[2].out_channels)
         
         MAC = MAC1 + MAC2
         # op = nn.Sequential(op, nn.BatchNorm2d(C, affine=False))
@@ -65,6 +82,9 @@ class MixedOp(nn.Module):
       if 'none' in primitive:
         FLOP = 0
         MAC = 0
+      if 'pool' in primitive:
+        FLOP = self.width * self.height * 9 * (C ** 2)
+        MAC = self.width * self.height * 2 * C
       self._ops.append(op)
       self.COSTS.append(FLOP + ratio * MAC)
 
