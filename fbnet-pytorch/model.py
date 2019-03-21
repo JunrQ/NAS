@@ -76,7 +76,9 @@ class FBNet(nn.Module):
 
     # assert len(self.theta) == 22
     with open(speed_f, 'r') as f:
-      self._speed = f.readlines()
+      _speed = f.readlines()
+    self._speed = [[float(t) for t in s.strip().split(' ')] for s in _speed]
+    self._speed = torch.tensor(self._speed, requires_grad=False)
     self.classifier = nn.Linear(dim_feature, num_classes)
     # TODO
     # nn.Sequential(nn.BatchNorm2d(dim_feature)
@@ -99,9 +101,8 @@ class FBNet(nn.Module):
         t = theta.repeat(batch_size, 1)
         weight = nn.functional.gumbel_softmax(t,
                                 temperature)
-        speed = self._speed[theta_idx].strip().split(' ')[:blk_len]
-        speed = [float(tmp) for tmp in speed]
-        lat_ = weight * torch.tensor(speed).cuda().repeat(batch_size, 1)
+        speed = self._speed[theta_idx][:blk_len].to(weight.device)
+        lat_ = weight * speed.repeat(batch_size, 1)
         lat.append(torch.sum(lat_))
 
         data = self._ops[theta_idx](data, weight)
@@ -111,13 +112,13 @@ class FBNet(nn.Module):
 
     data = self._output_conv(data)
 
-    lat = torch.tensor(lat).cuda()
+    lat = sum(lat)
     data = nn.functional.avg_pool2d(data, data.size()[2:])
     data = data.reshape((batch_size, -1))
     logits = self.classifier(data)
 
     self.ce = self._criterion(logits, target).sum()
-    self.lat_loss = torch.sum(lat) / batch_size
+    self.lat_loss = lat / batch_size
     self.loss = self.ce +  self._alpha * self.lat_loss.pow(self._beta)
 
     pred = torch.argmax(logits, dim=1)
@@ -187,7 +188,7 @@ class Trainer(object):
       tmp = self.temp
       self.temp *= self._tem_decay
       self.logger.info("Change temperature from %.5f to %.5f" % (tmp, self.temp))
-    return loss, ce, lat, acc
+    return loss.item(), ce.item(), lat.item(), acc.item()
   
   def train_t(self, input, target, decay_temperature=False):
     """Update theta.
@@ -200,7 +201,7 @@ class Trainer(object):
       tmp = self.temp
       self.temp *= self._tem_decay
       self.logger.info("Change temperature from %.5f to %.5f" % (tmp, self.temp))
-    return loss, ce, lat, acc
+    return loss.item(), ce.item(), lat.item(), acc.item()
   
   def decay_temperature(self, decay_ratio=None):
     tmp = self.temp
@@ -220,7 +221,6 @@ class Trainer(object):
     target = target.cuda()
     loss, ce, lat, acc = func(input, target)
 
-    map(lambda x: x.detach(), [loss, ce, lat, acc])
     # Get status
     batch_size = self._mod.batch_size
 
@@ -228,11 +228,6 @@ class Trainer(object):
     self._ce_avg.update(ce)
     self._lat_avg.update(lat)
     self._loss_avg.update(loss)
-
-    del acc
-    del ce
-    del lat
-    del loss
 
     if step > 1 and (step % log_frequence == 0):
       self.toc = time.time()
