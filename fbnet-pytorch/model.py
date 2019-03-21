@@ -216,7 +216,6 @@ class Trainer(object):
     input = input.cuda()
     target = target.cuda()
     loss, ce, lat, acc = func(input, target)
-
     # Get status
     batch_size = self._mod.batch_size
 
@@ -224,6 +223,11 @@ class Trainer(object):
     self._ce_avg.update(ce)
     self._lat_avg.update(lat)
     self._loss_avg.update(loss)
+
+    del acc
+    del ce
+    del lat
+    del loss
 
     if step > 1 and (step % log_frequence == 0):
       self.toc = time.time()
