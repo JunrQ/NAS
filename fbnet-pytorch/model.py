@@ -76,9 +76,11 @@ class FBNet(nn.Module):
 
     # assert len(self.theta) == 22
     with open(speed_f, 'r') as f:
+
       _speed = f.readlines()
     self._speed = [[float(t) for t in s.strip().split(' ')] for s in _speed]
     self._speed = torch.tensor(self._speed, requires_grad=False)
+
     self.classifier = nn.Linear(dim_feature, num_classes)
     # TODO
     # nn.Sequential(nn.BatchNorm2d(dim_feature)
