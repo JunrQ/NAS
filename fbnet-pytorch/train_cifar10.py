@@ -21,7 +21,7 @@ class Config(object):
   init_theta = 1.0
   alpha = 0.2
   beta = 0.6
-  speed_f = './speed_cpu.txt'
+  speed_f = './speed.txt'
   w_lr = 0.1
   w_mom = 0.9
   w_wd = 1e-4

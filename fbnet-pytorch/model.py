@@ -79,6 +79,20 @@ class FBNet(nn.Module):
 
       _speed = f.readlines()
     self._speed = [[float(t) for t in s.strip().split(' ')] for s in _speed]
+
+    # TODO
+    max_len = max([len(s) for s in self._speed])
+    iden_s = 0.0
+    iden_s_c = 0
+    for s in self._speed:
+      if len(s) == max_len:
+        iden_s += s[max_len - 1]
+        iden_s_c += 1
+    iden_s /= iden_s_c
+    for i in range(len(self._speed)):
+      if len(self._speed[i]) == (max_len - 1):
+        self._speed[i].append(iden_s)
+
     self._speed = torch.tensor(self._speed, requires_grad=False)
 
     self.classifier = nn.Linear(dim_feature, num_classes)
