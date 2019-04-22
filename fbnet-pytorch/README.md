@@ -4,7 +4,7 @@
 - Hardware-Aware Efficient ConvNet Design via Differentiable Neural Architecture Search
 **Implementation of [FBNet](https://arxiv.org/pdf/1812.03443.pdf) with PyTorch**
 
-**Note:** I use + not * in loss.
+**Note: Default loss is different from the paper, you can [change it](https://github.com/JunrQ/NAS/blob/master/fbnet-pytorch/model.py#L138)**
 
 ## Train cifar10
 ```shell
